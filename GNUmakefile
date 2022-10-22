@@ -127,13 +127,13 @@ fuse.o: fuse.cc
 -include *.d
 -include rpc/*.d
 
-clean_files=rpc/rpctest rpc/*.o rpc/*.d *.o *.d chfs_client extent_server lock_server lock_tester lock_demo rpctest test-lab-3-b test-lab-3-c rsm_tester part1_tester
+clean_files=rpc/rpctest rpc/*.o rpc/*.d *.o *.d *.txt *.tgz chfs_client extent_server lock_server lock_tester lock_demo rpctest test-lab-3-b test-lab-3-c rsm_tester part1_tester
 .PHONY: clean handin
 clean: 
 	rm $(clean_files) -rf 
 
 handin_ignore=$(clean_files) core* *log
-handin_file=lab$(LAB).tgz
+handin_file=lab$(LAB)_520021910933.tgz
 labdir=$(shell basename $(PWD))
 handin: 
 	@bash -c "cd ../; tar -X <(tr ' ' '\n' < <(echo '$(handin_ignore)')) -czvf $(handin_file) $(labdir); mv $(handin_file) $(labdir); cd $(labdir)"
