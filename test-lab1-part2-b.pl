@@ -109,6 +109,13 @@ sub checkcontent {
       $c2 .= $_;
     }
     close(F);
+    # my $contents = $files->{$name};
+
+    #     print "\ncorrect:";
+    #     print length($contents);
+    #     print "\nread:";
+    #     print length($c2);
+    
     $files->{$name} eq $c2 or die "content of $f is incorrect\n";
 }
 
@@ -157,6 +164,11 @@ sub writeat {
     my $contents = rand();
 
     my $x = $files->{$name};
+    # if($off eq 65536){
+    #     print "\nbefore:";
+    #     print length($x);
+    #     print "\n";
+    # }
     if (length($x) < $off + length($contents)) {
       my $nappend = $off + length($contents) - length($x);
       for (my $i=0; $i < $nappend; $i++) {
@@ -165,7 +177,11 @@ sub writeat {
     }
     substr($x, $off, length($contents)) = $contents;
     $files->{$name} = $x;
-    
+    # if($off eq 65536){
+    #     print length($x);
+    #     print "\n";
+    #     print length($contents);
+    # }
     seek(F, $off, 0);
     syswrite(F, $contents, length($contents), 0)
         or die "cannot write $f at offset $off";
