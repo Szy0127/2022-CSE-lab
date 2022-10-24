@@ -22,7 +22,27 @@ disk::write_block(blockid_t id, const char *buf)
   memcpy(blocks[id],buf,BLOCK_SIZE);
 }
 
+char* 
+disk::get_data()const
+{
+  return (char*)blocks;
+}
+
+void disk::set_data(char *data)
+{
+  memcpy((char*)blocks,data,DISK_SIZE);
+}
 // block layer -----------------------------------------
+
+void block_manager::set_data(char *data)
+{
+  d->set_data(data);
+}
+char* 
+block_manager::get_data()const
+{
+  return d->get_data();
+}
 
 // Allocate a free disk block.
 blockid_t
@@ -136,8 +156,19 @@ block_manager::write_block(uint32_t id, const char *buf)
   d->write_block(id, buf);
 }
 
+
+
 // inode layer -----------------------------------------
 
+char* inode_manager::get_data()const
+{
+  return bm->get_data();
+}
+
+void inode_manager::set_data(char *data)
+{
+  bm->set_data(data);
+}
 inode_manager::inode_manager()//:inum_available(1)
 {
   bm = new block_manager();

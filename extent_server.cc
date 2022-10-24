@@ -18,6 +18,12 @@ extent_server::extent_server()
   im = new inode_manager();
   _persister = new chfs_persister("log"); // DO NOT change the dir name here
 
+  char *buf = new char[DISK_SIZE];
+  auto exist = _persister->restore_checkpoint(buf,DISK_SIZE);
+  if(exist){
+    im->set_data(buf);
+  }
+  delete[] buf;
   // Your code here for Lab2A: recover data on startup
   std::vector<chfs_command> log_entries;
   std::set<chfs_command::txid_t> commited;
@@ -55,12 +61,18 @@ extent_server::extent_server()
 
 chfs_command::txid_t extent_server::begin()
 {
-  _persister->append_log({chfs_command::CMD_BEGIN,++_txid});
+  auto cp = _persister->append_log({chfs_command::CMD_BEGIN,++_txid});
+  if(cp){
+    checkpoint();
+  }
   return _txid;
 }
 void extent_server::commit(chfs_command::txid_t txid)
 {
-  _persister->append_log({chfs_command::CMD_COMMIT,txid});
+  auto cp = _persister->append_log({chfs_command::CMD_COMMIT,txid});
+  if(cp){
+    checkpoint();
+  }
 }
 
 // old:null new:id  undo:free_inode
@@ -72,7 +84,10 @@ int extent_server::create(uint32_t type, extent_protocol::extentid_t &id,chfs_co
   extent_protocol::attr a;
   getattr(id,a);
   // std::cout<<"create"<<txid<<" "<<id<<std::endl;
-  _persister->append_log({chfs_command::CMD_CREATE,txid,static_cast<chfs_command::inum_t>(id),*reinterpret_cast<chfs_command::inode_attr_t*>(&a)});
+  auto cp = _persister->append_log({chfs_command::CMD_CREATE,txid,static_cast<chfs_command::inum_t>(id),*reinterpret_cast<chfs_command::inode_attr_t*>(&a)});
+  if(cp){
+    checkpoint();
+  }
   return extent_protocol::OK;
 }
 
@@ -90,8 +105,11 @@ int extent_server::put(extent_protocol::extentid_t id, std::string buf, int &,ch
   im->write_file(id, cbuf, size);
   extent_protocol::attr a;
   getattr(id,a);
-  _persister->append_log({chfs_command::CMD_PUT,txid,static_cast<chfs_command::inum_t>(id),*reinterpret_cast<chfs_command::inode_attr_t*>(&a),old_buf,buf});
+  auto cp = _persister->append_log({chfs_command::CMD_PUT,txid,static_cast<chfs_command::inum_t>(id),*reinterpret_cast<chfs_command::inode_attr_t*>(&a),old_buf,buf});
   // std::cout<<"put"<<txid<<" "<<id<<" "<<size<<std::endl;
+  if(cp){
+    checkpoint();
+  }
   return extent_protocol::OK;
 }
 
@@ -140,8 +158,16 @@ int extent_server::remove(extent_protocol::extentid_t id, int &,chfs_command::tx
   im->remove_file(id);
   extent_protocol::attr a;
   getattr(id,a);
-  _persister->append_log({chfs_command::CMD_REMOVE,txid,static_cast<chfs_command::inum_t>(id),*reinterpret_cast<chfs_command::inode_attr_t*>(&a),buf,""});
+  auto cp = _persister->append_log({chfs_command::CMD_REMOVE,txid,static_cast<chfs_command::inum_t>(id),*reinterpret_cast<chfs_command::inode_attr_t*>(&a),buf,""});
   // std::cout<<"remove"<<txid<<" "<<id<<std::endl;
+  if(cp){
+    checkpoint();
+  }
   return extent_protocol::OK;
 }
 
+void extent_server::checkpoint()
+{
+  auto data = im->get_data();
+  _persister->checkpoint(data,DISK_SIZE);
+}

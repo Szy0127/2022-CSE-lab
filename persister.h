@@ -23,7 +23,7 @@
  */
 class chfs_command {
 public:
-    typedef unsigned long long txid_t;
+    using txid_t =  unsigned long long;
     enum cmd_type {
         CMD_BEGIN = 0,
         CMD_COMMIT,
@@ -33,11 +33,11 @@ public:
 
     };
 
-    cmd_type type = CMD_BEGIN;
-    txid_t id = 0;
+    cmd_type type{CMD_BEGIN};
+    txid_t id{0};
 
     using inum_t = uint32_t;
-    inum_t inum = 0;
+    inum_t inum{0};
     struct inode_attr_t{
         uint32_t type;
         unsigned int atime;
@@ -86,19 +86,21 @@ public:
 
     // persist data into solid binary file
     // You may modify parameters in these functions
-    void append_log(command log);
-    void checkpoint();
+    bool append_log(command log);//return if needed to reduce size (checkpoint)
+    void checkpoint(char* data,unsigned long long size);
 
     // restore data from solid binary file
     // You may modify parameters in these functions
     void restore_logdata(std::vector<command> &log_entries,std::set<chfs_command::txid_t> &commited);
-    void restore_checkpoint();
+    bool restore_checkpoint(char *buf,unsigned long long _size);
 
 private:
     std::mutex mtx;
     std::string file_dir;
     std::string file_path_checkpoint;
     std::string file_path_logfile;
+
+    unsigned int size{0};
 
     // restored log data
     // std::vector<command> log_entries;
@@ -121,30 +123,40 @@ persister<command>::~persister() {
 }
 
 template<typename command>
-void persister<command>::append_log(command log) {
+bool persister<command>::append_log(command log) {
     // Your code here for lab2A
     std::ofstream f(file_path_logfile,std::ios::app);
     f.write((char*)&log.type,sizeof(log.type));
     f.write((char*)&log.id,sizeof(log.id));
     f.write((char*)&log.inum,sizeof(log.inum));
     f.write((char*)&log.inode_attr,sizeof(chfs_command::inode_attr_t));
+    size += sizeof(log.type) + sizeof(log.id) + sizeof(log.inum) + sizeof(chfs_command::inode_attr_t);
     if(log.type == chfs_command::CMD_REMOVE || log.type == chfs_command::CMD_PUT){
         int len = log.old_val.length();
         f.write((char*)&len,sizeof(int));
         f.write(log.old_val.data(),len);
+        size += sizeof(int) + len;
         if(log.type == chfs_command::CMD_PUT){
             len = log.new_val.length();
             f.write((char*)&len,sizeof(int));
             f.write(log.new_val.data(),len);
+            size += sizeof(int) + len;
         }
     }
     // f<<'\n';
+    if(size > MAX_LOG_SZ){
+        return true;
+    }
+    return false;
 }
 
 template<typename command>
-void persister<command>::checkpoint() {
+void persister<command>::checkpoint(char* data,unsigned long long _size) {
     // Your code here for lab2A
-
+    std::ofstream f(file_path_checkpoint);
+    f.write(data,_size);
+    size = 0;
+    std::ofstream logf(file_path_logfile,std::ios::trunc);
 }
 
 template<typename command>
@@ -183,9 +195,14 @@ void persister<command>::restore_logdata(std::vector<command> &log_entries,std::
 };
 
 template<typename command>
-void persister<command>::restore_checkpoint() {
+bool persister<command>::restore_checkpoint(char *buf,unsigned long long size) {
     // Your code here for lab2A
-
+    std::ifstream f(file_path_checkpoint);
+    if(f.fail()){
+        return false;
+    }
+    f.read(buf,size);
+    return true;
 };
 
 

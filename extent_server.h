@@ -24,6 +24,8 @@ class extent_server {
   chfs_persister *_persister;
   std::atomic<chfs_command::txid_t> _txid;
 
+  void checkpoint();
+
  public:
   extent_server();
 
