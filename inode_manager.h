@@ -85,6 +85,7 @@ class inode_manager {
  public:
   inode_manager();
   uint32_t alloc_inode(uint32_t type);
+  void alloc_inode(uint32_t inum,inode_t *ino);//for recovery
   void free_inode(uint32_t inum);
   void read_file(uint32_t inum, char **buf, int *size);
   void write_file(uint32_t inum, const char *buf, int size);

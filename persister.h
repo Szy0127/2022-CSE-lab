@@ -3,6 +3,7 @@
 
 #include <fcntl.h>
 #include <mutex>
+#include <set>
 #include <iostream>
 #include <fstream>
 #include "rpc.h"
@@ -25,20 +26,46 @@ public:
     typedef unsigned long long txid_t;
     enum cmd_type {
         CMD_BEGIN = 0,
-        CMD_COMMIT
+        CMD_COMMIT,
+        CMD_CREATE,
+        CMD_PUT,
+        CMD_REMOVE
 
     };
 
     cmd_type type = CMD_BEGIN;
     txid_t id = 0;
 
-    // constructor
-    chfs_command() {}
+    using inum_t = uint32_t;
+    inum_t inum = 0;
+    struct inode_attr_t{
+        uint32_t type;
+        unsigned int atime;
+        unsigned int mtime;
+        unsigned int ctime;
+        unsigned int size;
+    }inode_attr;
 
-    uint64_t size() const {
-        uint64_t s = sizeof(cmd_type) + sizeof(txid_t);
-        return s;
-    }
+    
+    std::string old_val{};
+    std::string new_val{};
+
+    // constructor
+    chfs_command(){}
+
+    chfs_command(cmd_type t,txid_t tid,inum_t n,inode_attr_t inode,std::string old,std::string new_):type(t),id(tid),inum(n),inode_attr(inode),old_val(old),new_val(new_) {}
+    
+    //begin commit
+    chfs_command(cmd_type t,txid_t tid):type(t),id(tid){}
+
+    chfs_command(cmd_type t,txid_t tid,inum_t n,inode_attr_t inode):type(t),id(tid),inum(n),inode_attr(inode) {}
+
+
+
+    // uint64_t size() const {
+    //     uint64_t s = sizeof(cmd_type) + sizeof(txid_t);
+    //     return s;
+    // }
 };
 
 /*
@@ -59,12 +86,12 @@ public:
 
     // persist data into solid binary file
     // You may modify parameters in these functions
-    void append_log(const command& log);
+    void append_log(command log);
     void checkpoint();
 
     // restore data from solid binary file
     // You may modify parameters in these functions
-    void restore_logdata();
+    void restore_logdata(std::vector<command> &log_entries,std::set<chfs_command::txid_t> &commited);
     void restore_checkpoint();
 
 private:
@@ -74,7 +101,9 @@ private:
     std::string file_path_logfile;
 
     // restored log data
-    std::vector<command> log_entries;
+    // std::vector<command> log_entries;
+    // std::set<chfs_command::txid_t> commited;
+
 };
 
 template<typename command>
@@ -92,9 +121,23 @@ persister<command>::~persister() {
 }
 
 template<typename command>
-void persister<command>::append_log(const command& log) {
+void persister<command>::append_log(command log) {
     // Your code here for lab2A
-
+    std::ofstream f(file_path_logfile,std::ios::app);
+    f.write((char*)&log.type,sizeof(log.type));
+    f<<log.id<<" "<<log.inum<<" ";
+    f.write((char*)&log.inode_attr,sizeof(chfs_command::inode_attr_t));
+    if(log.type == chfs_command::CMD_REMOVE || log.type == chfs_command::CMD_PUT){
+        auto len = log.old_val.length();
+        f<<len<<" ";
+        f.write(log.old_val.data(),len);
+        if(log.type == chfs_command::CMD_PUT){
+            len = log.new_val.length();
+            f<<len<<" ";
+            f.write(log.new_val.data(),len);
+        }
+    }
+    f<<'\n';
 }
 
 template<typename command>
@@ -104,9 +147,32 @@ void persister<command>::checkpoint() {
 }
 
 template<typename command>
-void persister<command>::restore_logdata() {
+void persister<command>::restore_logdata(std::vector<command> &log_entries,std::set<chfs_command::txid_t> &commited) {
     // Your code here for lab2A
-
+    std::ifstream f(file_path_logfile);
+    command log;
+    while(!f.eof()){
+        f.read((char*)&log.type,sizeof(log.type));
+        f>>log.id>>log.inum;
+        f.read((char*)&log.inode_attr,sizeof(chfs_command::inode_attr_t));
+        if(log.type == chfs_command::CMD_REMOVE || log.type == chfs_command::CMD_PUT){
+            int len;
+            f>>len;
+            char c[len+1];
+            f.read(c,len);
+            log.old_val.assign(c, len);
+            if(log.type == chfs_command::CMD_PUT){
+                f>>len;
+                char c1[len+1];
+                f.read(c1,len);
+                log.new_val.assign(c1, len);
+            }
+        }
+    }
+    if(log.type==chfs_command::CMD_COMMIT){
+        commited.insert(log.id);
+    }
+    log_entries.push_back(std::move(log));
 };
 
 template<typename command>
@@ -114,6 +180,7 @@ void persister<command>::restore_checkpoint() {
     // Your code here for lab2A
 
 };
+
 
 using chfs_persister = persister<chfs_command>;
 

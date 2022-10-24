@@ -188,6 +188,28 @@ inode_manager::alloc_inode(uint32_t type)
 }
 
 void
+inode_manager::alloc_inode(uint32_t inum,inode_t *ino)
+{
+  /* 
+   * your code goes here.
+   * note: the normal inode block should begin from the 2nd inode block.
+   * the 1st is used for root_dir, see inode_manager::inode_manager().
+   */
+
+
+  char buf[BLOCK_SIZE];
+
+  bm->read_block(IBLOCK(inum,bm->sb.nblocks),buf);
+  inode_t *_ino = (inode_t*)buf + inum%IPB;
+  assert(_ino->type==0);
+  for(auto i = 0 ; i <= NDIRECT;i++){
+    ino->blocks[i] = 0;
+  }
+  put_inode(inum,ino);
+
+}
+
+void
 inode_manager::free_inode(uint32_t inum)
 {
   /* 

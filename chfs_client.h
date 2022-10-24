@@ -42,7 +42,7 @@ class chfs_client {
   static inum n2i(std::string);
 
   std::string entries2str(chfs_client::inum ,const std::list<chfs_client::dirent> &);
-  int _create(inum , const char *, extent_protocol::types , inum &);
+  int _create(inum , const char *, extent_protocol::types , inum &,chfs_command::txid_t);
 
  public:
   chfs_client();

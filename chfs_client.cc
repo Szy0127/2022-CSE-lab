@@ -16,6 +16,7 @@
  * 'write' and 'symlink') as a transaction, your job is to use write ahead log 
  * to achive all-or-nothing for these transactions.
  */
+
 #define EXT_RPC(xx) do { \
     if ((xx) != extent_protocol::OK) { \
         printf("EXT_RPC Error: %s:%d \n", __FILE__, __LINE__); \
@@ -31,8 +32,19 @@ chfs_client::chfs_client()
 chfs_client::chfs_client(std::string extent_dst, std::string lock_dst)
 {
     ec = new extent_client();
-    if (ec->put(1, "") != extent_protocol::OK)
+    chfs_command::txid_t txid;
+    if(ec->begin(txid)!= extent_protocol::OK){
         printf("error init root dir\n"); // XYB: init root dir
+        return;
+    }
+    if (ec->put(1, "",txid) != extent_protocol::OK){
+        printf("error init root dir\n"); // XYB: init root dir
+        return;
+    }
+    if(ec->commit(txid)!= extent_protocol::OK){
+        printf("error init root dir\n"); // XYB: init root dir
+        return;
+    }
 }
 
 chfs_client::inum
@@ -81,7 +93,7 @@ int chfs_client::readlink(inum ino,std::string &path){
     return OK;
 }
 
-int chfs_client::_create(inum parent, const char *name, extent_protocol::types type, inum &ino_out){
+int chfs_client::_create(inum parent, const char *name, extent_protocol::types type, inum &ino_out,chfs_command::txid_t txid){
     int r = OK;
 
     bool found;
@@ -94,7 +106,7 @@ int chfs_client::_create(inum parent, const char *name, extent_protocol::types t
     //create an inode
     //format of this inode stays same, buf content of blocks is the format of a dir that we design by ourselves
 
-    EXT_RPC(ec->create(type,ino_out));
+    EXT_RPC(ec->create(type,ino_out,txid));
     std::list<dirent> entries;
     readdir(parent,entries);
     dirent d;
@@ -102,16 +114,19 @@ int chfs_client::_create(inum parent, const char *name, extent_protocol::types t
     d.inum = ino_out;
     entries.push_back(d);
 
-    EXT_RPC(ec->put(parent,entries2str(parent,entries)));
+    EXT_RPC(ec->put(parent,entries2str(parent,entries),txid));
 
     std::cout<<"create:"<<ino_out<<" "<<type<<std::endl;
     return r;
 }
 //parent/name --> link
-int chfs_client::symlink(inum parent,const char *link,const char *name,inum &ino_out){
-    _create(parent,name,extent_protocol::T_SLINK,ino_out);
+int chfs_client::symlink(inum parent,const char *link,const char *name,inum &ino_out){\
+    chfs_command::txid_t txid;
+    EXT_RPC(ec->begin(txid));
+    _create(parent,name,extent_protocol::T_SLINK,ino_out,txid);
     std::cout<<"symlink:"<<link<<" "<<ino_out<<std::endl;
-    EXT_RPC(ec->put(ino_out,link));
+    EXT_RPC(ec->put(ino_out,link,txid));
+    EXT_RPC(ec->commit(txid));
     return OK;
 }
 bool
@@ -213,6 +228,7 @@ release:
 int
 chfs_client::setattr(inum ino, size_t size)
 {
+    
     int r = OK;
 
     /*
@@ -226,12 +242,13 @@ chfs_client::setattr(inum ino, size_t size)
     // EXT_RPC(ec->getattr(ino,a));
     // a.size = size;
     std::string data;
-
+    chfs_command::txid_t txid;
+    EXT_RPC(ec->begin(txid));
     EXT_RPC(ec->get(ino,data));
     data.resize(size,'\0');
 
-    EXT_RPC(ec->put(ino,data));
-
+    EXT_RPC(ec->put(ino,data,txid));
+    EXT_RPC(ec->commit(txid));
 
     return r;
 }
@@ -255,8 +272,11 @@ chfs_client::create(inum parent, const char *name, mode_t mode, inum &ino_out)
      * note: lookup is what you need to check if file exist;
      * after create file or dir, you must remember to modify the parent infomation.
      */
-
-    return _create(parent,name,extent_protocol::T_FILE,ino_out);
+    chfs_command::txid_t txid;
+    EXT_RPC(ec->begin(txid));
+    auto res = _create(parent,name,extent_protocol::T_FILE,ino_out, txid);
+    EXT_RPC(ec->commit(txid));
+    return res;
 }
 
 // Your code here for Lab2A: add logging to ensure atomicity
@@ -276,7 +296,11 @@ chfs_client::mkdir(inum parent, const char *name, mode_t mode, inum &ino_out)
     //create an inode
     //format of this inode stays same, buf content of blocks is the format of a dir that we design by ourselves
 
-    return _create(parent,name,extent_protocol::T_DIR,ino_out);
+    chfs_command::txid_t txid;
+    EXT_RPC(ec->begin(txid));
+    auto res = _create(parent,name,extent_protocol::T_DIR,ino_out,txid);
+    EXT_RPC(ec->commit(txid));
+    return res;
 }
 
 int
@@ -401,7 +425,10 @@ chfs_client::write(inum ino, size_t size, off_t off, const char *data,
         }
     }
 
-    EXT_RPC(ec->put(ino,origin));
+    chfs_command::txid_t txid;
+    EXT_RPC(ec->begin(txid));
+    EXT_RPC(ec->put(ino,origin,txid));
+    EXT_RPC(ec->commit(txid));
     bytes_written = size;
     // std::cout<<"write"<<ino<<" "<<size<<" "<<off<<" "<<origin.length()<<std::endl;
     return r;
@@ -425,11 +452,15 @@ int chfs_client::unlink(inum parent,const char *name)
     if(!found){
         return NOENT;
     }
-    EXT_RPC(ec->remove(ino));
+
+    chfs_command::txid_t txid;
+    EXT_RPC(ec->begin(txid));
+    EXT_RPC(ec->remove(ino,txid));
     std::list<dirent> entries;
     readdir(parent,entries);
     entries.remove_if([&name](const auto &entry){return strcmp(entry.name.c_str(),name)==0;});
-    EXT_RPC(ec->put(parent,entries2str(parent,entries)));
+    EXT_RPC(ec->put(parent,entries2str(parent,entries),txid));
+    EXT_RPC(ec->commit(txid));
     return r;
 }
 
