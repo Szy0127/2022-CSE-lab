@@ -125,19 +125,20 @@ void persister<command>::append_log(command log) {
     // Your code here for lab2A
     std::ofstream f(file_path_logfile,std::ios::app);
     f.write((char*)&log.type,sizeof(log.type));
-    f<<log.id<<" "<<log.inum<<" ";
+    f.write((char*)&log.id,sizeof(log.id));
+    f.write((char*)&log.inum,sizeof(log.inum));
     f.write((char*)&log.inode_attr,sizeof(chfs_command::inode_attr_t));
     if(log.type == chfs_command::CMD_REMOVE || log.type == chfs_command::CMD_PUT){
-        auto len = log.old_val.length();
-        f<<len<<" ";
+        int len = log.old_val.length();
+        f.write((char*)&len,sizeof(int));
         f.write(log.old_val.data(),len);
         if(log.type == chfs_command::CMD_PUT){
             len = log.new_val.length();
-            f<<len<<" ";
+            f.write((char*)&len,sizeof(int));
             f.write(log.new_val.data(),len);
         }
     }
-    f<<'\n';
+    // f<<'\n';
 }
 
 template<typename command>
@@ -150,29 +151,35 @@ template<typename command>
 void persister<command>::restore_logdata(std::vector<command> &log_entries,std::set<chfs_command::txid_t> &commited) {
     // Your code here for lab2A
     std::ifstream f(file_path_logfile);
-    command log;
+    if(f.fail()){
+        return;
+    }
     while(!f.eof()){
+        command log;
         f.read((char*)&log.type,sizeof(log.type));
-        f>>log.id>>log.inum;
+        f.read((char*)&log.id,sizeof(log.id));
+        f.read((char*)&log.inum,sizeof(log.inum));
+        // std::cout<<log.type<<" "<<log.id<<" "<<log.inum<<std::endl;
         f.read((char*)&log.inode_attr,sizeof(chfs_command::inode_attr_t));
         if(log.type == chfs_command::CMD_REMOVE || log.type == chfs_command::CMD_PUT){
             int len;
-            f>>len;
+            f.read((char*)&len,sizeof(int));
             char c[len+1];
             f.read(c,len);
             log.old_val.assign(c, len);
             if(log.type == chfs_command::CMD_PUT){
-                f>>len;
+                f.read((char*)&len,sizeof(int));
                 char c1[len+1];
                 f.read(c1,len);
                 log.new_val.assign(c1, len);
             }
         }
+        if(log.type==chfs_command::CMD_COMMIT){
+            commited.insert(log.id);
+        }else{
+            log_entries.push_back(std::move(log));
+        }
     }
-    if(log.type==chfs_command::CMD_COMMIT){
-        commited.insert(log.id);
-    }
-    log_entries.push_back(std::move(log));
 };
 
 template<typename command>

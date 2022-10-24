@@ -24,6 +24,7 @@ extent_server::extent_server()
   _persister->restore_logdata(log_entries,commited);
   for(const auto &log:log_entries){
     if(commited.count(log.id)){
+      std::cout<<"recover "<<log.id<<" ";
       switch(log.type){
         case chfs_command::CMD_CREATE:{
           inode_t inode;
@@ -32,11 +33,20 @@ extent_server::extent_server()
           inode.atime = log.inode_attr.atime;
           inode.ctime = log.inode_attr.ctime;
           inode.mtime = log.inode_attr.mtime;
-          im->alloc_inode(log.inum,&inode);break;}
-          case chfs_command::CMD_PUT:
-          im->write_file(log.inum, log.new_val.data(), log.new_val.length());break;
-          case chfs_command::CMD_REMOVE:
-          im->remove_file(log.id);break;
+          im->alloc_inode(log.inum,&inode);
+          std::cout<<"create"<<log.inum<<std::endl;
+          break;
+          }
+          case chfs_command::CMD_PUT:{
+          im->write_file(log.inum, log.new_val.data(), log.new_val.length());
+          std::cout<<"put"<<log.inum<<" "<<log.new_val.length()<<std::endl;
+          break;
+          }
+          case chfs_command::CMD_REMOVE:{
+          im->remove_file(log.inum);
+          std::cout<<"remove"<<log.inum<<std::endl;
+          break;
+          }
           default:break;
       }
     }
@@ -61,8 +71,8 @@ int extent_server::create(uint32_t type, extent_protocol::extentid_t &id,chfs_co
   id = im->alloc_inode(type);
   extent_protocol::attr a;
   getattr(id,a);
+  // std::cout<<"create"<<txid<<" "<<id<<std::endl;
   _persister->append_log({chfs_command::CMD_CREATE,txid,static_cast<chfs_command::inum_t>(id),*reinterpret_cast<chfs_command::inode_attr_t*>(&a)});
-
   return extent_protocol::OK;
 }
 
@@ -81,7 +91,7 @@ int extent_server::put(extent_protocol::extentid_t id, std::string buf, int &,ch
   extent_protocol::attr a;
   getattr(id,a);
   _persister->append_log({chfs_command::CMD_PUT,txid,static_cast<chfs_command::inum_t>(id),*reinterpret_cast<chfs_command::inode_attr_t*>(&a),old_buf,buf});
-
+  // std::cout<<"put"<<txid<<" "<<id<<" "<<size<<std::endl;
   return extent_protocol::OK;
 }
 
@@ -131,7 +141,7 @@ int extent_server::remove(extent_protocol::extentid_t id, int &,chfs_command::tx
   extent_protocol::attr a;
   getattr(id,a);
   _persister->append_log({chfs_command::CMD_REMOVE,txid,static_cast<chfs_command::inum_t>(id),*reinterpret_cast<chfs_command::inode_attr_t*>(&a),buf,""});
-
+  // std::cout<<"remove"<<txid<<" "<<id<<std::endl;
   return extent_protocol::OK;
 }
 
