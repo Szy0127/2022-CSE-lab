@@ -33,6 +33,7 @@ public:
 
     };
 
+    bool in_checkpoint{false};
     cmd_type type{CMD_BEGIN};
     txid_t id{0};
 
@@ -128,6 +129,7 @@ bool persister<command>::append_log(command log) {
     std::ofstream f(file_path_logfile,std::ios::app);
     f.write((char*)&log.type,sizeof(log.type));
     f.write((char*)&log.id,sizeof(log.id));
+    f.write((char*)&log.in_checkpoint,sizeof(log.in_checkpoint));
     f.write((char*)&log.inum,sizeof(log.inum));
     f.write((char*)&log.inode_attr,sizeof(chfs_command::inode_attr_t));
     size += sizeof(log.type) + sizeof(log.id) + sizeof(log.inum) + sizeof(chfs_command::inode_attr_t);
@@ -153,8 +155,8 @@ bool persister<command>::append_log(command log) {
 template<typename command>
 void persister<command>::checkpoint(char* data,unsigned long long _size) {
     // Your code here for lab2A
-    std::ofstream f(file_path_checkpoint);
-    f.write(data,_size);
+    std::ofstream cf(file_path_checkpoint);
+    cf.write(data,_size);
     size = 0;
     
     std::vector<command> log_entries;
@@ -166,13 +168,31 @@ void persister<command>::checkpoint(char* data,unsigned long long _size) {
             log_not_commited.push_back(std::move(log));//undo
         }
     }
-    {
-        std::ofstream logf(file_path_logfile,std::ios::trunc);
+    
+    std::ofstream f(file_path_logfile,std::ios::trunc);
+    
+    for(auto log:log_not_commited){
+        // assert(0);
+        log.in_checkpoint = true;
+        f.write((char*)&log.type,sizeof(log.type));
+        f.write((char*)&log.id,sizeof(log.id));
+        f.write((char*)&log.in_checkpoint,sizeof(log.in_checkpoint));
+        f.write((char*)&log.inum,sizeof(log.inum));
+        f.write((char*)&log.inode_attr,sizeof(chfs_command::inode_attr_t));
+        size += sizeof(log.type) + sizeof(log.id) + sizeof(log.inum) + sizeof(chfs_command::inode_attr_t);
+        if(log.type == chfs_command::CMD_REMOVE || log.type == chfs_command::CMD_PUT){
+            int len = log.old_val.length();
+            f.write((char*)&len,sizeof(int));
+            f.write(log.old_val.data(),len);
+            size += sizeof(int) + len;
+            if(log.type == chfs_command::CMD_PUT){
+                len = log.new_val.length();
+                f.write((char*)&len,sizeof(int));
+                f.write(log.new_val.data(),len);
+                size += sizeof(int) + len;
+            }
+        }
     }
-    // for(const auto&log:log_not_commited){
-    //     assert(0);
-    //     append_log(log);
-    // }
 }
 
 template<typename command>
@@ -186,6 +206,7 @@ void persister<command>::restore_logdata(std::vector<command> &log_entries,std::
         command log;
         f.read((char*)&log.type,sizeof(log.type));
         f.read((char*)&log.id,sizeof(log.id));
+        f.read((char*)&log.in_checkpoint,sizeof(log.in_checkpoint));
         f.read((char*)&log.inum,sizeof(log.inum));
         // std::cout<<log.type<<" "<<log.id<<" "<<log.inum<<std::endl;
         f.read((char*)&log.inode_attr,sizeof(chfs_command::inode_attr_t));

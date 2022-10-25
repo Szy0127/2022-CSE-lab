@@ -29,72 +29,75 @@ extent_server::extent_server()
   std::set<chfs_command::txid_t> commited;
   _persister->restore_logdata(log_entries,commited);
   for(const auto &log:log_entries){
-    if(commited.count(log.id)){
-      std::cout<<"recover "<<log.id<<" ";
-      switch(log.type){
+    if(!log.in_checkpoint){// commited:redo  uncommited:ignore
+      if(commited.count(log.id)){
+        std::cout<<"recover "<<log.id<<" ";
+        switch(log.type){
+          case chfs_command::CMD_CREATE:{
+            inode_t inode;
+            inode.type = log.inode_attr.type;
+            inode.size = log.inode_attr.size;
+            inode.atime = log.inode_attr.atime;
+            inode.ctime = log.inode_attr.ctime;
+            inode.mtime = log.inode_attr.mtime;
+            im->alloc_inode(log.inum,&inode);
+            std::cout<<"create"<<log.inum<<std::endl;
+            break;
+            }
+            case chfs_command::CMD_PUT:{
+            im->write_file(log.inum, log.new_val.data(), log.new_val.length());
+            std::cout<<"put"<<log.inum<<" "<<log.new_val.length()<<std::endl;
+            break;
+            }
+            case chfs_command::CMD_REMOVE:{
+            im->remove_file(log.inum);
+            std::cout<<"remove"<<log.inum<<std::endl;
+            break;
+            }
+            default:break;
+        }
+      }
+    }else{//commited:ignore uncommited: undo
+      if(!commited.count(log.id)){
+        switch(log.type){
         case chfs_command::CMD_CREATE:{
-          inode_t inode;
-          inode.type = log.inode_attr.type;
-          inode.size = log.inode_attr.size;
-          inode.atime = log.inode_attr.atime;
-          inode.ctime = log.inode_attr.ctime;
-          inode.mtime = log.inode_attr.mtime;
-          im->alloc_inode(log.inum,&inode);
-          std::cout<<"create"<<log.inum<<std::endl;
+          extent_protocol::attr a;
+          getattr(log.inum,a);
+          if(a.type!=0){
+            im->free_inode(log.inum);
+          }
           break;
           }
           case chfs_command::CMD_PUT:{
-          im->write_file(log.inum, log.new_val.data(), log.new_val.length());
-          std::cout<<"put"<<log.inum<<" "<<log.new_val.length()<<std::endl;
-          break;
-          }
+            std::string buf;
+            get(log.inum,buf);
+            if(buf == log.new_val){
+              im->write_file(log.inum, log.old_val.data(), log.old_val.length());
+            }
+            break;
+            }
           case chfs_command::CMD_REMOVE:{
-          im->remove_file(log.inum);
-          std::cout<<"remove"<<log.inum<<std::endl;
+              extent_protocol::attr a;
+              getattr(log.inum,a);
+              if(a.type==0){
+                inode_t inode;
+                inode.type = log.inode_attr.type;
+                inode.size = log.inode_attr.size;
+                inode.atime = log.inode_attr.atime;
+                inode.ctime = log.inode_attr.ctime;
+                inode.mtime = log.inode_attr.mtime;
+                im->alloc_inode(log.inum,&inode);
+                im->write_file(log.inum, log.old_val.data(), log.old_val.length());
+              }
           break;
           }
           default:break;
+        }
       }
-    }else{
-        //uncommited
-        //if has done in checkpoint need undo else just ignore
-      //   switch(log.type){
-      //   case chfs_command::CMD_CREATE:{
-      //     extent_protocol::attr a;
-      //     getattr(log.inum,a);
-      //     if(a.type!=0){
-      //       im->free_inode(log.inum);
-      //     }
-      //     break;
-      //     }
-      //     case chfs_command::CMD_PUT:{
-      //       std::string buf;
-      //       get(log.inum,buf);
-      //       if(buf == log.new_val){
-      //         im->write_file(log.inum, log.old_val.data(), log.old_val.length());
-      //       }
-      //       break;
-      //       }
-      //     case chfs_command::CMD_REMOVE:{
-      //         extent_protocol::attr a;
-      //         getattr(log.inum,a);
-      //         if(a.type==0){
-      //           inode_t inode;
-      //           inode.type = log.inode_attr.type;
-      //           inode.size = log.inode_attr.size;
-      //           inode.atime = log.inode_attr.atime;
-      //           inode.ctime = log.inode_attr.ctime;
-      //           inode.mtime = log.inode_attr.mtime;
-      //           im->alloc_inode(log.inum,&inode);
-      //           im->write_file(log.inum, log.old_val.data(), log.old_val.length());
-      //         }
-      //     break;
-      //     }
-      //     default:break;
-      // }
     }
   }
 }
+
 
 chfs_command::txid_t extent_server::begin()
 {
