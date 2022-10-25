@@ -55,6 +55,43 @@ extent_server::extent_server()
           }
           default:break;
       }
+    }else{
+        //uncommited
+        //if has done in checkpoint need undo else just ignore
+      //   switch(log.type){
+      //   case chfs_command::CMD_CREATE:{
+      //     extent_protocol::attr a;
+      //     getattr(log.inum,a);
+      //     if(a.type!=0){
+      //       im->free_inode(log.inum);
+      //     }
+      //     break;
+      //     }
+      //     case chfs_command::CMD_PUT:{
+      //       std::string buf;
+      //       get(log.inum,buf);
+      //       if(buf == log.new_val){
+      //         im->write_file(log.inum, log.old_val.data(), log.old_val.length());
+      //       }
+      //       break;
+      //       }
+      //     case chfs_command::CMD_REMOVE:{
+      //         extent_protocol::attr a;
+      //         getattr(log.inum,a);
+      //         if(a.type==0){
+      //           inode_t inode;
+      //           inode.type = log.inode_attr.type;
+      //           inode.size = log.inode_attr.size;
+      //           inode.atime = log.inode_attr.atime;
+      //           inode.ctime = log.inode_attr.ctime;
+      //           inode.mtime = log.inode_attr.mtime;
+      //           im->alloc_inode(log.inum,&inode);
+      //           im->write_file(log.inum, log.old_val.data(), log.old_val.length());
+      //         }
+      //     break;
+      //     }
+      //     default:break;
+      // }
     }
   }
 }

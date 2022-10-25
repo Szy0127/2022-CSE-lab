@@ -156,7 +156,23 @@ void persister<command>::checkpoint(char* data,unsigned long long _size) {
     std::ofstream f(file_path_checkpoint);
     f.write(data,_size);
     size = 0;
-    std::ofstream logf(file_path_logfile,std::ios::trunc);
+    
+    std::vector<command> log_entries;
+    std::set<chfs_command::txid_t> commited;
+    restore_logdata(log_entries,commited);
+    std::vector<command> log_not_commited;
+    for(auto log:log_entries){
+        if(!commited.count(log.id)){
+            log_not_commited.push_back(std::move(log));//undo
+        }
+    }
+    {
+        std::ofstream logf(file_path_logfile,std::ios::trunc);
+    }
+    // for(const auto&log:log_not_commited){
+    //     assert(0);
+    //     append_log(log);
+    // }
 }
 
 template<typename command>
