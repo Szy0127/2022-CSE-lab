@@ -25,6 +25,8 @@ class extent_server {
   std::atomic<chfs_command::txid_t> _txid;
 
   void checkpoint();
+  void redo(const chfs_command& log);
+  void undo(const chfs_command& log);
 
  public:
   extent_server();
