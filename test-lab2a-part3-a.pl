@@ -33,7 +33,7 @@ my $files = { };
 
 my $logfile = "log/logdata.bin";
 my $snpfile = "log/checkpoint.bin";
-my $MAX_LOG_SZ = 1024;
+my $MAX_LOG_SZ = 131072;
 my $MAX_SNP_SZ = 16777216;
 
 for(my $iters = 0; $iters < 20; $iters++){

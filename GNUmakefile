@@ -132,7 +132,7 @@ clean_files=rpc/rpctest rpc/*.o rpc/*.d *.o *.d *.txt *.tgz chfs_client extent_s
 clean: 
 	rm $(clean_files) -rf 
 
-handin_ignore=$(clean_files) core* *log
+handin_ignore=$(clean_files) core* *log chfs1
 handin_file=lab$(LAB)_520021910933.tgz
 labdir=$(shell basename $(PWD))
 handin: 
