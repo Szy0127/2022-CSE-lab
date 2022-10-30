@@ -18,26 +18,38 @@ extent_server::extent_server()
   im = new inode_manager();
   _persister = new chfs_persister("log"); // DO NOT change the dir name here
 
+
+  // Your code here for Lab2A: recover data on startup
+
+  //restore checkpoint
   char *buf = new char[DISK_SIZE];
   auto exist = _persister->restore_checkpoint(buf,DISK_SIZE);
   if(exist){
     im->set_data(buf);
   }
   delete[] buf;
-  // Your code here for Lab2A: recover data on startup
+
+
+
+  //undo-redo
   std::vector<chfs_command> log_entries;
   std::set<chfs_command::txid_t> commited;
+  // first tranverse  find commit/abort
   _persister->restore_logdata(log_entries,commited);
+
+  //second tranverse undo
+  for(auto reIt = log_entries.rbegin();reIt!=log_entries.rend();reIt++){
+    auto log = *reIt;
+    if(log.in_checkpoint && !commited.count(log.id)){//commited:ignore uncommited: undo
+      undo(log);
+    }
+  }
+
+  //third tranverse redo
   for(const auto &log:log_entries){
-    if(!log.in_checkpoint){// commited:redo  uncommited:ignore
-      if(commited.count(log.id)){
-        std::cout<<"recover "<<log.id<<" ";
+    if(!log.in_checkpoint && commited.count(log.id)){// commited:redo  uncommited:ignore
+        // std::cout<<"recover "<<log.id<<" ";
         redo(log);
-      }
-    }else{//commited:ignore uncommited: undo
-      if(!commited.count(log.id)){
-        undo(log);
-      }
     }
   }
 }
