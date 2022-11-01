@@ -31,10 +31,16 @@ lock_protocol::status
 lock_client::acquire(lock_protocol::lockid_t lid)
 {
 	// Your lab2B part2 code goes here
+  int r;
+  auto ret = cl->call(lock_protocol::acquire,cl->id(),lid,r);
+  return ret;
 }
 
 lock_protocol::status
 lock_client::release(lock_protocol::lockid_t lid)
 {
 	// Your lab2B part2 code goes here
+  int r;
+  auto ret = cl->call(lock_protocol::release,cl->id(),lid,r);
+  return ret;
 }

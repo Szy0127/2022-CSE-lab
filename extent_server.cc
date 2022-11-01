@@ -158,7 +158,7 @@ int extent_server::create(chfs_command::txid_t txid,uint32_t type, extent_protoc
 //old:get(id) new:buf undo:put(old)
 int extent_server::put(chfs_command::txid_t txid,extent_protocol::extentid_t id, std::string buf, int &)
 {
-  // printf("extent_server: put %lld\n", id);
+  printf("extent_server: put %lld\n", id);
   id &= 0x7fffffff;
   
   const char * cbuf = buf.c_str();
@@ -170,10 +170,12 @@ int extent_server::put(chfs_command::txid_t txid,extent_protocol::extentid_t id,
   extent_protocol::attr a;
   getattr(id,a);
   auto cp = _persister->append_log({chfs_command::CMD_PUT,txid,static_cast<chfs_command::inum_t>(id),*reinterpret_cast<chfs_command::inode_attr_t*>(&a),old_buf,buf});
-  // std::cout<<"put"<<txid<<" "<<id<<" "<<size<<std::endl;
+  std::cout<<"put"<<txid<<" "<<id<<" "<<size<<std::endl;
   if(cp){
+    std::cout<<"checkpoint"<<std::endl;
     checkpoint();
   }
+  std::cout<<"put"<<txid<<" "<<id<<" "<<size<<"success"<<std::endl;
   return extent_protocol::OK;
 }
 

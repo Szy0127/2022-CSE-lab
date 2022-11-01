@@ -35,34 +35,22 @@ chfs_client::chfs_client(std::string extent_dst, std::string lock_dst)
         printf("error init root dir\n"); // XYB: init root dir
         return;
     }
+    lc->acquire(1);
     if (ec->put(1, "",txid) != extent_protocol::OK){
+        lc->release(1);
         printf("error init root dir\n"); // XYB: init root dir
         return;
     }
     if(ec->commit(txid)!= extent_protocol::OK){
+        lc->release(1);
         printf("error init root dir\n"); // XYB: init root dir
         return;
     }
+    lc->release(1);
 
 }
 
-// chfs_client::chfs_client(std::string extent_dst, std::string lock_dst)
-// {
-//     ec = new extent_client();
-//     chfs_command::txid_t txid;
-//     if(ec->begin(txid)!= extent_protocol::OK){
-//         printf("error init root dir\n"); // XYB: init root dir
-//         return;
-//     }
-//     if (ec->put(1, "",txid) != extent_protocol::OK){
-//         printf("error init root dir\n"); // XYB: init root dir
-//         return;
-//     }
-//     if(ec->commit(txid)!= extent_protocol::OK){
-//         printf("error init root dir\n"); // XYB: init root dir
-//         return;
-//     }
-// }
+
 
 chfs_client::inum
 chfs_client::n2i(std::string n)
@@ -85,12 +73,13 @@ bool
 chfs_client::isfile(inum inum)
 {
     extent_protocol::attr a;
-
+    lc->acquire(inum);
     if (ec->getattr(inum, a) != extent_protocol::OK) {
         printf("error getting attr\n");
+        lc->release(inum);
         return false;
     }
-
+    lc->release(inum);
     if (a.type == extent_protocol::T_FILE) {
         printf("isfile: %lld is a file\n", inum);
         return true;
@@ -105,15 +94,19 @@ chfs_client::isfile(inum inum)
 
 int chfs_client::readlink(inum ino,std::string &path){
     extent_protocol::attr a;
+    lc->acquire(ino);
     EXT_RPC(ec->getattr(ino,a));
     read(ino,a.size,0,path);
+    lc->release(ino);
     return OK;
 }
 
 int chfs_client::_create(inum parent, const char *name, extent_protocol::types type, inum &ino_out,chfs_command::txid_t txid){
+    std::cout<<"_create"<<std::endl;
     int r = OK;
 
     bool found;
+    lc->acquire(parent);
     lookup(parent,name,found,ino_out);
     if(found){
         return EXIST;
@@ -132,17 +125,20 @@ int chfs_client::_create(inum parent, const char *name, extent_protocol::types t
     entries.push_back(d);
 
     EXT_RPC(ec->put(parent,entries2str(parent,entries),txid));
-
+    lc->release(parent);
     std::cout<<"create:"<<ino_out<<" "<<type<<std::endl;
     return r;
 }
 //parent/name --> link
-int chfs_client::symlink(inum parent,const char *link,const char *name,inum &ino_out){\
+int chfs_client::symlink(inum parent,const char *link,const char *name,inum &ino_out){
+    std::cout<<"symlink"<<std::endl;
     chfs_command::txid_t txid;
     EXT_RPC(ec->begin(txid));
     _create(parent,name,extent_protocol::T_SLINK,ino_out,txid);
     std::cout<<"symlink:"<<link<<" "<<ino_out<<std::endl;
+    lc->acquire(ino_out);
     EXT_RPC(ec->put(ino_out,link,txid));
+    lc->release(ino_out);
     EXT_RPC(ec->commit(txid));
     return OK;
 }
@@ -150,11 +146,13 @@ bool
 chfs_client::isslink(inum inum){
     extent_protocol::attr a;
 
+    lc->acquire(inum);
     if (ec->getattr(inum, a) != extent_protocol::OK) {
         printf("error getting attr\n");
+        lc->release(inum);
         return false;
     }
-
+    lc->release(inum);
     if (a.type == extent_protocol::T_SLINK) {
         printf("isfile: %lld is a symbolic link\n", inum);
         return true;
@@ -165,12 +163,16 @@ bool
 chfs_client::isdir(inum inum)
 {
 
+    std::cout<<"isdir"<<std::endl;
     extent_protocol::attr a;
 
+    lc->acquire(inum);
     if (ec->getattr(inum, a) != extent_protocol::OK) {
         printf("error getting attr\n");
+        lc->release(inum);
         return false;
     }
+    lc->release(inum);
 
     if (a.type == extent_protocol::T_DIR) {
         printf("isfile: %lld is a dir\n", inum);
@@ -186,10 +188,13 @@ chfs_client::getfile(inum inum, fileinfo &fin)
 
     printf("getfile %016llx\n", inum);
     extent_protocol::attr a;
+    lc->acquire(inum);
     if (ec->getattr(inum, a) != extent_protocol::OK) {
         r = IOERR;
+        lc->release(inum);
         goto release;
     }
+    lc->release(inum);
 
     fin.atime = a.atime;
     fin.mtime = a.mtime;
@@ -208,10 +213,13 @@ chfs_client::getdir(inum inum, dirinfo &din)
 
     printf("getdir %016llx\n", inum);
     extent_protocol::attr a;
+    lc->acquire(inum);
     if (ec->getattr(inum, a) != extent_protocol::OK) {
         r = IOERR;
+        lc->release(inum);
         goto release;
     }
+    lc->acquire(inum);
     din.atime = a.atime;
     din.mtime = a.mtime;
     din.ctime = a.ctime;
@@ -227,10 +235,13 @@ chfs_client::getslink(inum inum, slinkinfo &sin)
 
     printf("getslink %016llx\n", inum);
     extent_protocol::attr a;
+    lc->acquire(inum);
     if (ec->getattr(inum, a) != extent_protocol::OK) {
         r = IOERR;
+        lc->release(inum);
         goto release;
     }
+    lc->release(inum);
     sin.atime = a.atime;
     sin.mtime = a.mtime;
     sin.ctime = a.ctime;
@@ -245,7 +256,7 @@ release:
 int
 chfs_client::setattr(inum ino, size_t size)
 {
-    
+    std::cout<<"setattr"<<std::endl;
     int r = OK;
 
     /*
@@ -261,10 +272,12 @@ chfs_client::setattr(inum ino, size_t size)
     std::string data;
     chfs_command::txid_t txid;
     EXT_RPC(ec->begin(txid));
+    lc->acquire(ino);
     EXT_RPC(ec->get(ino,data));
     data.resize(size,'\0');
 
     EXT_RPC(ec->put(ino,data,txid));
+    lc->release(ino);
     EXT_RPC(ec->commit(txid));
 
     return r;
@@ -323,6 +336,7 @@ chfs_client::mkdir(inum parent, const char *name, mode_t mode, inum &ino_out)
 int
 chfs_client::lookup(inum parent, const char *name, bool &found, inum &ino_out)
 {
+    std::cout<<"lookup"<<std::endl;
     int r = OK;
 
     /*
@@ -334,8 +348,10 @@ chfs_client::lookup(inum parent, const char *name, bool &found, inum &ino_out)
     // the job of parsing path is done by fuse,which we can't see the detail
     // we just save data in symlink and read it in readlink
     assert(isdir(parent));
+    lc->acquire(parent);
     std::list<dirent> entries;
     readdir(parent,entries);
+    lc->release(parent);
     found = false;
     for(auto const &entry:entries){
         if(strcmp(name,entry.name.c_str())==0){
@@ -352,6 +368,7 @@ chfs_client::lookup(inum parent, const char *name, bool &found, inum &ino_out)
 int
 chfs_client::readdir(inum dir, std::list<dirent> &list)
 {
+    std::cout<<"readdir"<<std::endl;
     int r = OK;
 
     /*
@@ -364,7 +381,9 @@ chfs_client::readdir(inum dir, std::list<dirent> &list)
 
     assert(list.empty());
     std::string buf;
+    lc->acquire(dir);
     EXT_RPC(ec->get(dir,buf));
+    lc->release(dir);
     std::stringstream ss(buf);
     dirent entry;
     while(std::getline(ss,entry.name,'\0')){
@@ -389,8 +408,10 @@ chfs_client::read(inum ino, size_t size, off_t off, std::string &data)
     std::cout<<"read:"<<ino<<" "<<size<<std::endl;
     assert(size >=0);
     assert(off >=0);
+    lc->acquire(ino);
     EXT_RPC(ec->get(ino,data));
     // assert(size+off <= data.length());// it's valid and substr work normally
+    lc->release(ino);
     data = data.substr(off,size);
 
     // std::cout<<"read"<<ino<<" "<<size<<" "<<off<<std::endl;
@@ -414,6 +435,7 @@ chfs_client::write(inum ino, size_t size, off_t off, const char *data,
     assert(size >=0);
     assert(off >=0);
     std::string origin;
+    lc->acquire(ino);
     EXT_RPC(ec->get(ino,origin));
     auto len = origin.length();
 
@@ -445,6 +467,7 @@ chfs_client::write(inum ino, size_t size, off_t off, const char *data,
     chfs_command::txid_t txid;
     EXT_RPC(ec->begin(txid));
     EXT_RPC(ec->put(ino,origin,txid));
+    lc->release(ino);
     EXT_RPC(ec->commit(txid));
     bytes_written = size;
     // std::cout<<"write"<<ino<<" "<<size<<" "<<off<<" "<<origin.length()<<std::endl;
@@ -465,6 +488,7 @@ int chfs_client::unlink(inum parent,const char *name)
     std::cout<<"unlink:"<<name<<std::endl;
     bool found;
     inum ino;
+    lc->acquire(parent);
     lookup(parent,name,found,ino);
     if(!found){
         return NOENT;
@@ -472,11 +496,14 @@ int chfs_client::unlink(inum parent,const char *name)
 
     chfs_command::txid_t txid;
     EXT_RPC(ec->begin(txid));
+    lc->acquire(ino);
     EXT_RPC(ec->remove(ino,txid));
+    lc->release(ino);
     std::list<dirent> entries;
     readdir(parent,entries);
     entries.remove_if([&name](const auto &entry){return strcmp(entry.name.c_str(),name)==0;});
     EXT_RPC(ec->put(parent,entries2str(parent,entries),txid));
+    lc->release(parent);
     EXT_RPC(ec->commit(txid));
     return r;
 }

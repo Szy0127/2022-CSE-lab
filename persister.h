@@ -155,20 +155,25 @@ bool persister<command>::append_log(command log) {
 template<typename command>
 void persister<command>::checkpoint(char* data,unsigned long long _size) {
     // Your code here for lab2A
+
+    std::cout<<"checkpoint in persister"<<std::endl;
     std::ofstream cf(file_path_checkpoint);
     cf.write(data,_size);
+    std::cout<<"checkpoint in persister"<<std::endl;
     size = 0;
     
     std::vector<command> log_entries;
     std::set<chfs_command::txid_t> commited;
+    std::cout<<"checkpoint in persister"<<std::endl;
     restore_logdata(log_entries,commited);
+    std::cout<<"checkpoint in persister"<<std::endl;
     std::vector<command> log_not_commited;
     for(auto log:log_entries){
         if(!commited.count(log.id)){
             log_not_commited.push_back(std::move(log));//undo
         }
     }
-    
+    std::cout<<"checkpoint in persister"<<std::endl;
     std::ofstream f(file_path_logfile,std::ios::trunc);
     
     for(auto log:log_not_commited){
@@ -199,36 +204,49 @@ template<typename command>
 void persister<command>::restore_logdata(std::vector<command> &log_entries,std::set<chfs_command::txid_t> &commited) {
     // Your code here for lab2A
     std::ifstream f(file_path_logfile);
+    std::cout<<"restore_logdata"<<std::endl;
     if(f.fail()){
         return;
     }
+    std::cout<<"restore_logdata"<<std::endl;
     while(!f.eof()){
+        std::cout<<"restore_logdata read"<<std::endl;
         command log;
         f.read((char*)&log.type,sizeof(log.type));
         f.read((char*)&log.id,sizeof(log.id));
         f.read((char*)&log.in_checkpoint,sizeof(log.in_checkpoint));
         f.read((char*)&log.inum,sizeof(log.inum));
-        // std::cout<<log.type<<" "<<log.id<<" "<<log.inum<<std::endl;
+        std::cout<<log.type<<" "<<log.id<<" "<<log.inum<<std::endl;
         f.read((char*)&log.inode_attr,sizeof(chfs_command::inode_attr_t));
         if(log.type == chfs_command::CMD_REMOVE || log.type == chfs_command::CMD_PUT){
+            std::cout<<"remove put"<<std::endl;
             int len;
             f.read((char*)&len,sizeof(int));
-            char c[len+1];
+            char *c = new char[len+1];
             f.read(c,len);
             log.old_val.assign(c, len);
+            delete[] c;
             if(log.type == chfs_command::CMD_PUT){
+                std::cout<<"put"<<std::endl;
                 f.read((char*)&len,sizeof(int));
-                char c1[len+1];
+                // std::cout<<"put"<<std::endl;
+                char *c1 = new char[len+1];
+                // std::cout<<"put"<<std::endl;
                 f.read(c1,len);
+                // std::cout<<"put"<<std::endl;
                 log.new_val.assign(c1, len);
+                delete[] c1;
+                std::cout<<"put finish"<<std::endl;
             }
         }
         if(log.type==chfs_command::CMD_COMMIT){
+            std::cout<<"commit"<<std::endl;
             commited.insert(log.id);
         }else{
             log_entries.push_back(std::move(log));
         }
     }
+    std::cout<<"restore_logdata finish"<<std::endl;
 };
 
 template<typename command>
