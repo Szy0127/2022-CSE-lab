@@ -28,8 +28,22 @@ chfs_client::chfs_client(std::string extent_dst, std::string lock_dst)
 {
     ec = new extent_client(extent_dst);
     lc = new lock_client(lock_dst);
-    if (ec->put(1, "",1) != extent_protocol::OK)
+    // if (ec->put(1, "",1) != extent_protocol::OK)
+    //     printf("error init root dir\n"); // XYB: init root dir
+    chfs_command::txid_t txid;
+    if(ec->begin(txid)!= extent_protocol::OK){
         printf("error init root dir\n"); // XYB: init root dir
+        return;
+    }
+    if (ec->put(1, "",txid) != extent_protocol::OK){
+        printf("error init root dir\n"); // XYB: init root dir
+        return;
+    }
+    if(ec->commit(txid)!= extent_protocol::OK){
+        printf("error init root dir\n"); // XYB: init root dir
+        return;
+    }
+
 }
 
 // chfs_client::chfs_client(std::string extent_dst, std::string lock_dst)
