@@ -11,37 +11,175 @@
 #include "extent_server.h"
 #include "persister.h"
 
+
+
 extent_server::extent_server() 
 {
   im = new inode_manager();
   _persister = new chfs_persister("log"); // DO NOT change the dir name here
 
+
   // Your code here for Lab2A: recover data on startup
+
+  //restore checkpoint
+  char *buf = new char[DISK_SIZE];
+  auto exist = _persister->restore_checkpoint(buf,DISK_SIZE);
+  if(exist){
+    im->set_data(buf);
+  }
+  delete[] buf;
+
+
+
+  //undo-redo
+  std::vector<chfs_command> log_entries;
+  std::set<chfs_command::txid_t> commited;
+  // first tranverse  find commit/abort
+  _persister->restore_logdata(log_entries,commited);
+
+  //second tranverse undo
+  for(auto reIt = log_entries.rbegin();reIt!=log_entries.rend();reIt++){
+    auto log = *reIt;
+    if(log.in_checkpoint && !commited.count(log.id)){//commited:ignore uncommited: undo
+      undo(log);
+    }
+  }
+
+  //third tranverse redo
+  for(const auto &log:log_entries){
+    if(!log.in_checkpoint && commited.count(log.id)){// commited:redo  uncommited:ignore
+        // std::cout<<"recover "<<log.id<<" ";
+        redo(log);
+    }
+  }
 }
 
-int extent_server::create(uint32_t type, extent_protocol::extentid_t &id)
-{
-  // alloc a new inode and return inum
-  printf("extent_server: create inode\n");
-  id = im->alloc_inode(type);
 
+void extent_server::redo(const chfs_command& log)
+{
+  switch(log.type){
+    case chfs_command::CMD_CREATE:{
+      inode_t inode;
+      inode.type = log.inode_attr.type;
+      inode.size = log.inode_attr.size;
+      inode.atime = log.inode_attr.atime;
+      inode.ctime = log.inode_attr.ctime;
+      inode.mtime = log.inode_attr.mtime;
+      im->alloc_inode(log.inum,&inode);
+      std::cout<<"create"<<log.inum<<std::endl;
+      break;
+      }
+      case chfs_command::CMD_PUT:{
+      im->write_file(log.inum, log.new_val.data(), log.new_val.length());
+      std::cout<<"put"<<log.inum<<" "<<log.new_val.length()<<std::endl;
+      break;
+      }
+      case chfs_command::CMD_REMOVE:{
+      im->remove_file(log.inum);
+      std::cout<<"remove"<<log.inum<<std::endl;
+      break;
+      }
+      default:break;
+  }
+}
+
+void extent_server::undo(const chfs_command& log)
+{
+  switch(log.type){
+    case chfs_command::CMD_CREATE:{
+      extent_protocol::attr a;
+      getattr(log.inum,a);
+      if(a.type!=0){
+        im->free_inode(log.inum);
+      }
+      break;
+      }
+      case chfs_command::CMD_PUT:{
+        std::string buf;
+        get(log.inum,buf);
+        if(buf == log.new_val){
+          im->write_file(log.inum, log.old_val.data(), log.old_val.length());
+        }
+        break;
+        }
+      case chfs_command::CMD_REMOVE:{
+          extent_protocol::attr a;
+          getattr(log.inum,a);
+          if(a.type==0){
+            inode_t inode;
+            inode.type = log.inode_attr.type;
+            inode.size = log.inode_attr.size;
+            inode.atime = log.inode_attr.atime;
+            inode.ctime = log.inode_attr.ctime;
+            inode.mtime = log.inode_attr.mtime;
+            im->alloc_inode(log.inum,&inode);
+            im->write_file(log.inum, log.old_val.data(), log.old_val.length());
+          }
+      break;
+      }
+      default:break;
+    }
+}
+
+int extent_server::begin(int,chfs_command::txid_t &txid)
+{
+  auto cp = _persister->append_log({chfs_command::CMD_BEGIN,++_txid});
+  if(cp){
+    checkpoint();
+  }
+  txid = _txid;
+  return extent_protocol::OK;
+}
+int extent_server::commit(chfs_command::txid_t txid,int&)
+{
+  auto cp = _persister->append_log({chfs_command::CMD_COMMIT,txid});
+  if(cp){
+    checkpoint();
+  }
   return extent_protocol::OK;
 }
 
-int extent_server::put(extent_protocol::extentid_t id, std::string buf, int &)
+// old:null new:id  undo:free_inode
+int extent_server::create(chfs_command::txid_t txid,uint32_t type, extent_protocol::extentid_t &id)
 {
+  // alloc a new inode and return inum
+  // printf("extent_server: create inode\n");
+  id = im->alloc_inode(type);
+  extent_protocol::attr a;
+  getattr(id,a);
+  // std::cout<<"create"<<txid<<" "<<id<<std::endl;
+  auto cp = _persister->append_log({chfs_command::CMD_CREATE,txid,static_cast<chfs_command::inum_t>(id),*reinterpret_cast<chfs_command::inode_attr_t*>(&a)});
+  if(cp){
+    checkpoint();
+  }
+  return extent_protocol::OK;
+}
+
+//old:get(id) new:buf undo:put(old)
+int extent_server::put(chfs_command::txid_t txid,extent_protocol::extentid_t id, std::string buf, int &)
+{
+  // printf("extent_server: put %lld\n", id);
   id &= 0x7fffffff;
   
   const char * cbuf = buf.c_str();
   int size = buf.size();
+  // printf("extent_server: put %lld size %d\n", id,size);
+  std::string old_buf;
+  get(id,old_buf);
   im->write_file(id, cbuf, size);
-  
+  extent_protocol::attr a;
+  getattr(id,a);
+  auto cp = _persister->append_log({chfs_command::CMD_PUT,txid,static_cast<chfs_command::inum_t>(id),*reinterpret_cast<chfs_command::inode_attr_t*>(&a),old_buf,buf});
+  // std::cout<<"put"<<txid<<" "<<id<<" "<<size<<std::endl;
+  if(cp){
+    checkpoint();
+  }
   return extent_protocol::OK;
 }
 
 int extent_server::get(extent_protocol::extentid_t id, std::string &buf)
 {
-  printf("extent_server: get %lld\n", id);
+  // printf("extent_server: get %lld\n", id);
 
   id &= 0x7fffffff;
 
@@ -61,7 +199,7 @@ int extent_server::get(extent_protocol::extentid_t id, std::string &buf)
 
 int extent_server::getattr(extent_protocol::extentid_t id, extent_protocol::attr &a)
 {
-  printf("extent_server: getattr %lld\n", id);
+  // printf("extent_server: getattr %lld\n", id);
 
   id &= 0x7fffffff;
   
@@ -73,13 +211,27 @@ int extent_server::getattr(extent_protocol::extentid_t id, extent_protocol::attr
   return extent_protocol::OK;
 }
 
-int extent_server::remove(extent_protocol::extentid_t id, int &)
+//old:get(id) new:null undo: create(id) put(old)
+int extent_server::remove(chfs_command::txid_t txid,extent_protocol::extentid_t id, int &)
 {
-  printf("extent_server: write %lld\n", id);
+  // printf("extent_server: write %lld\n", id);
 
   id &= 0x7fffffff;
+  std::string buf;
+  get(id,buf);
   im->remove_file(id);
- 
+  extent_protocol::attr a;
+  getattr(id,a);
+  auto cp = _persister->append_log({chfs_command::CMD_REMOVE,txid,static_cast<chfs_command::inum_t>(id),*reinterpret_cast<chfs_command::inode_attr_t*>(&a),buf,""});
+  // std::cout<<"remove"<<txid<<" "<<id<<std::endl;
+  if(cp){
+    checkpoint();
+  }
   return extent_protocol::OK;
 }
 
+void extent_server::checkpoint()
+{
+  auto data = im->get_data();
+  _persister->checkpoint(data,DISK_SIZE);
+}
