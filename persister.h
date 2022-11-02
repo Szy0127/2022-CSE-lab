@@ -125,6 +125,10 @@ persister<command>::~persister() {
 
 template<typename command>
 bool persister<command>::append_log(command log) {
+    if(log.type==chfs_command::CMD_BEGIN){
+        return false;
+    }
+    assert(log.id!=0);
     // Your code here for lab2A
     std::ofstream f(file_path_logfile,std::ios::app);
     f.write((char*)&log.type,sizeof(log.type));
@@ -175,6 +179,7 @@ void persister<command>::checkpoint(char* data,unsigned long long _size) {
         // assert(0);
         log.in_checkpoint = true;
         f.write((char*)&log.type,sizeof(log.type));
+        assert(log.type!=chfs_command::CMD_BEGIN);
         f.write((char*)&log.id,sizeof(log.id));
         f.write((char*)&log.in_checkpoint,sizeof(log.in_checkpoint));
         f.write((char*)&log.inum,sizeof(log.inum));
@@ -202,12 +207,19 @@ void persister<command>::restore_logdata(std::vector<command> &log_entries,std::
     if(f.fail()){
         return;
     }
+
+    command log;
+    f.read((char*)&log.type,sizeof(log.type));
     while(!f.eof()){
-        command log;
-        f.read((char*)&log.type,sizeof(log.type));
+        // f.read((char*)&log.type,sizeof(log.type));
         f.read((char*)&log.id,sizeof(log.id));
         f.read((char*)&log.in_checkpoint,sizeof(log.in_checkpoint));
         f.read((char*)&log.inum,sizeof(log.inum));
+        // if(log.id==0){
+        //     continue;
+        // }
+        // std::cout<<log.type<<" "<<log.inum<<std::endl;
+        assert(log.type!=chfs_command::CMD_BEGIN);
         // std::cout<<log.type<<" "<<log.id<<" "<<log.inum<<std::endl;
         f.read((char*)&log.inode_attr,sizeof(chfs_command::inode_attr_t));
         if(log.type == chfs_command::CMD_REMOVE || log.type == chfs_command::CMD_PUT){
@@ -228,6 +240,8 @@ void persister<command>::restore_logdata(std::vector<command> &log_entries,std::
         }else{
             log_entries.push_back(std::move(log));
         }
+
+        f.read((char*)&log.type,sizeof(log.type));
     }
 };
 

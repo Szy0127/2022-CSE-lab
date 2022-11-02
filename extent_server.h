@@ -22,7 +22,7 @@ class extent_server {
 #endif
   inode_manager *im;
   chfs_persister *_persister;
-  std::atomic<chfs_command::txid_t> _txid;
+  std::atomic<chfs_command::txid_t> _txid{0};
 
   void checkpoint();
   void redo(const chfs_command& log);
