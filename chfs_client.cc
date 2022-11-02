@@ -219,7 +219,7 @@ chfs_client::getdir(inum inum, dirinfo &din)
         lc->release(inum);
         goto release;
     }
-    lc->acquire(inum);
+    lc->release(inum);
     din.atime = a.atime;
     din.mtime = a.mtime;
     din.ctime = a.ctime;
