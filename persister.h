@@ -127,6 +127,10 @@ persister<command>::~persister() {
 
 template<typename command>
 bool persister<command>::append_log(command log) {
+    // if(log.type==chfs_command::CMD_BEGIN){
+    //     return false;
+    // }
+    assert(log.id!=0);
     std::unique_lock<std::mutex> _(mtx);
     // Your code here for lab2A
     std::ofstream f(file_path_logfile,std::ios::app);
@@ -150,6 +154,7 @@ bool persister<command>::append_log(command log) {
     }
     // f<<'\n';
     if(size > MAX_LOG_SZ){
+        // return false;
         return true;
     }
     return false;
@@ -159,28 +164,29 @@ template<typename command>
 void persister<command>::checkpoint(char* data,unsigned long long _size) {
     // Your code here for lab2A
     std::unique_lock<std::mutex> _(mtx);
-    std::cout<<"checkpoint in persister1"<<std::endl;
+    // std::cout<<"checkpoint in persister1"<<std::endl;
     std::ofstream cf(file_path_checkpoint);
     cf.write(data,_size);
-    std::cout<<"checkpoint in persister2"<<std::endl;
+    // std::cout<<"checkpoint in persister2"<<std::endl;
     size = 0;
     
     std::vector<command> log_entries;
     std::set<chfs_command::txid_t> commited;
-    std::cout<<"checkpoint in persister3"<<std::endl;
+    // std::cout<<"checkpoint in persister3"<<std::endl;
     restore_logdata_lockfree(log_entries,commited);
-    std::cout<<"checkpoint in persister4"<<std::endl;
+    // std::cout<<"checkpoint in persister4"<<std::endl;
     std::vector<command> log_not_commited;
     for(auto log:log_entries){
         if(!commited.count(log.id)){
             log_not_commited.push_back(std::move(log));//undo
         }
     }
-    std::cout<<"checkpoint in persister5"<<std::endl;
+    // std::cout<<"checkpoint in persister5"<<std::endl;
     std::ofstream f(file_path_logfile,std::ios::trunc);
     
     for(auto log:log_not_commited){
         // assert(0);
+        // assert(log.type!=chfs_command::CMD_BEGIN);
         log.in_checkpoint = true;
         f.write((char*)&log.type,sizeof(log.type));
         f.write((char*)&log.id,sizeof(log.id));
@@ -217,11 +223,14 @@ void persister<command>::restore_logdata_lockfree(std::vector<command> &log_entr
         return;
     }
     std::cout<<"restore_logdata"<<std::endl;
+    command log;
+    f.read((char*)&log.type,sizeof(log.type));
     while(!f.eof()){
-        std::cout<<"restore_logdata read"<<std::endl;
-        command log;
-        f.read((char*)&log.type,sizeof(log.type));
+        // std::cout<<"restore_logdata read"<<std::endl;
+        // command log;
+        // f.read((char*)&log.type,sizeof(log.type));
         f.read((char*)&log.id,sizeof(log.id));
+        assert(log.id!=0);
         f.read((char*)&log.in_checkpoint,sizeof(log.in_checkpoint));
         f.read((char*)&log.inum,sizeof(log.inum));
         std::cout<<log.type<<" "<<log.id<<" "<<log.inum<<std::endl;
@@ -253,6 +262,7 @@ void persister<command>::restore_logdata_lockfree(std::vector<command> &log_entr
         }else{
             log_entries.push_back(std::move(log));
         }
+        f.read((char*)&log.type,sizeof(log.type));
     }
     std::cout<<"restore_logdata finish"<<std::endl;
 };

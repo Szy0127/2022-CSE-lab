@@ -84,8 +84,8 @@ clean_files=rpc/rpctest rpc/*.o rpc/*.d *.o *.d chfs_client extent_server lock_s
 clean: 
 	rm $(clean_files) -rf 
 
-handin_ignore=$(clean_files) core* *log .git
-handin_file=lab$(LAB).tgz
+handin_ignore=$(clean_files) core* *log .git chfs1 chfs2
+handin_file=lab$(LAB)_520021910933.tgz
 labdir=$(shell basename $(PWD))
 handin: 
 	@bash -c "cd ../; tar -X <(tr ' ' '\n' < <(echo '$(handin_ignore)')) -czvf $(handin_file) $(labdir); mv $(handin_file) $(labdir); cd $(labdir)"
