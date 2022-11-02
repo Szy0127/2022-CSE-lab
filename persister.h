@@ -107,6 +107,8 @@ private:
     // std::vector<command> log_entries;
     // std::set<chfs_command::txid_t> commited;
 
+    void restore_logdata_lockfree(std::vector<command> &log_entries,std::set<chfs_command::txid_t> &commited);
+
 };
 
 template<typename command>
@@ -125,6 +127,7 @@ persister<command>::~persister() {
 
 template<typename command>
 bool persister<command>::append_log(command log) {
+    std::unique_lock<std::mutex> _(mtx);
     // Your code here for lab2A
     std::ofstream f(file_path_logfile,std::ios::app);
     f.write((char*)&log.type,sizeof(log.type));
@@ -155,25 +158,25 @@ bool persister<command>::append_log(command log) {
 template<typename command>
 void persister<command>::checkpoint(char* data,unsigned long long _size) {
     // Your code here for lab2A
-
-    std::cout<<"checkpoint in persister"<<std::endl;
+    std::unique_lock<std::mutex> _(mtx);
+    std::cout<<"checkpoint in persister1"<<std::endl;
     std::ofstream cf(file_path_checkpoint);
     cf.write(data,_size);
-    std::cout<<"checkpoint in persister"<<std::endl;
+    std::cout<<"checkpoint in persister2"<<std::endl;
     size = 0;
     
     std::vector<command> log_entries;
     std::set<chfs_command::txid_t> commited;
-    std::cout<<"checkpoint in persister"<<std::endl;
-    restore_logdata(log_entries,commited);
-    std::cout<<"checkpoint in persister"<<std::endl;
+    std::cout<<"checkpoint in persister3"<<std::endl;
+    restore_logdata_lockfree(log_entries,commited);
+    std::cout<<"checkpoint in persister4"<<std::endl;
     std::vector<command> log_not_commited;
     for(auto log:log_entries){
         if(!commited.count(log.id)){
             log_not_commited.push_back(std::move(log));//undo
         }
     }
-    std::cout<<"checkpoint in persister"<<std::endl;
+    std::cout<<"checkpoint in persister5"<<std::endl;
     std::ofstream f(file_path_logfile,std::ios::trunc);
     
     for(auto log:log_not_commited){
@@ -202,6 +205,11 @@ void persister<command>::checkpoint(char* data,unsigned long long _size) {
 
 template<typename command>
 void persister<command>::restore_logdata(std::vector<command> &log_entries,std::set<chfs_command::txid_t> &commited) {
+    std::unique_lock<std::mutex> _(mtx);
+    restore_logdata_lockfree(log_entries,commited);
+}
+template<typename command>
+void persister<command>::restore_logdata_lockfree(std::vector<command> &log_entries,std::set<chfs_command::txid_t> &commited) {
     // Your code here for lab2A
     std::ifstream f(file_path_logfile);
     std::cout<<"restore_logdata"<<std::endl;
@@ -252,6 +260,7 @@ void persister<command>::restore_logdata(std::vector<command> &log_entries,std::
 template<typename command>
 bool persister<command>::restore_checkpoint(char *buf,unsigned long long size) {
     // Your code here for lab2A
+    std::unique_lock<std::mutex> _(mtx);
     std::ifstream f(file_path_checkpoint);
     if(f.fail()){
         return false;
