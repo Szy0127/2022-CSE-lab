@@ -29,23 +29,29 @@ lock_server::acquire(int clt, lock_protocol::lockid_t lid, int &r)
   std::unique_lock<std::mutex> l(mutex);
   auto item = locks.find(lid);
   if(item == locks.end()){
-    locks.insert(std::make_pair(lid,clt));
+    locks.emplace(lid,locked);
     std::cout<<clt<<"acquire "<<lid<<std::endl;
     return ret;
   }
-  if(item->second == clt){
-    // item->second = locked;
-    std::cout<<clt<<"acquire "<<lid<<" already owned"<<std::endl;
-    return ret;
-  }
+  // if(item->second == -1){
+  //   item->second = clt;
+  //   std::cout<<clt<<"acquire "<<lid<<std::endl;
+  //   return ret;
+  // }
+  // if(item->second == clt){
+  //   std::cout<<clt<<"acquire "<<lid<<" already owned"<<std::endl;
+  //   return ret;
+  // }
   // auto cv_items = mutex_and_cvs.find(lid);
   // if(cv_items == mutex_and_cvs.end()){
   //   mutex_and_cvs.emplace(lid,std::make_pair(std::make_shared<std::mutex>(),std::make_shared<std::condition_variable>()));
   // }
   // }
   std::cout<<clt<<"wait for "<<lid<<std::endl;
-  cv.wait(l,[this,lid](){return this->locks.count(lid)==0;});
-  locks.emplace(lid,clt);
+  cv.wait(l,[this,lid,clt](){return this->locks.count(lid)==0 ;});
+  assert(locks.count(lid)==0);
+  locks.emplace(lid,locked);
+  // locks[lid] = clt;
   std::cout<<clt<<"finish wait and acquire "<<lid<<std::endl;
   return ret;
 }
@@ -62,7 +68,8 @@ lock_server::release(int clt, lock_protocol::lockid_t lid, int &r)
     std::cout<<clt<<"release "<<lid<<"but not acquired"<<std::endl;
     return ret;
   }
+  // locks[lid] = -1;
   locks.erase(item);
-  cv.notify_one();
+  cv.notify_all();//all thread waiting for global lock but not same lock id
   return ret;
 }

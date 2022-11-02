@@ -46,6 +46,11 @@ class chfs_client {
   std::string entries2str(chfs_client::inum ,const std::list<chfs_client::dirent> &);
   int _create(inum , const char *, extent_protocol::types , inum &,chfs_command::txid_t);
 
+  int lookup_lockfree(inum, const char *, bool &, inum &);
+  int readdir_lockfree(inum, std::list<dirent> &);
+  int read_lockfree(inum, size_t, off_t, std::string &);
+
+
  public:
   chfs_client(std::string, std::string);
 

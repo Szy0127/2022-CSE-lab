@@ -14,12 +14,12 @@
 class lock_server {
 
  protected:
-  // enum lockstatus{free,locked};
+  enum lockstatus{free,locked};
   int nacquire;
   std::mutex mutex;
   std::condition_variable cv;
-  std::map<lock_protocol::lockid_t,int> locks;
-  std::map<lock_protocol::lockid_t,std::pair<std::shared_ptr<std::mutex>,std::shared_ptr<std::condition_variable>>> mutex_and_cvs;
+  std::map<lock_protocol::lockid_t,lockstatus> locks;
+  // std::map<lock_protocol::lockid_t,std::pair<std::shared_ptr<std::mutex>,std::shared_ptr<std::condition_variable>>> mutex_and_cvs;
 
  public:
   lock_server();

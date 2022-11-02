@@ -96,19 +96,21 @@ int chfs_client::readlink(inum ino,std::string &path){
     extent_protocol::attr a;
     lc->acquire(ino);
     EXT_RPC(ec->getattr(ino,a));
-    read(ino,a.size,0,path);
+    read_lockfree(ino,a.size,0,path);
     lc->release(ino);
     return OK;
 }
 
 int chfs_client::_create(inum parent, const char *name, extent_protocol::types type, inum &ino_out,chfs_command::txid_t txid){
-    std::cout<<"_create"<<std::endl;
+    std::cout<<"_create "<<name<<std::endl;
     int r = OK;
 
     bool found;
     lc->acquire(parent);
-    lookup(parent,name,found,ino_out);
+    lookup_lockfree(parent,name,found,ino_out);
     if(found){
+        std::cout<<"found "<<name<<std::endl;
+        lc->release(parent);
         return EXIST;
     }
     
@@ -118,7 +120,7 @@ int chfs_client::_create(inum parent, const char *name, extent_protocol::types t
 
     EXT_RPC(ec->create(type,ino_out,txid));
     std::list<dirent> entries;
-    readdir(parent,entries);
+    readdir_lockfree(parent,entries);
     dirent d;
     d.name = std::string(name);
     d.inum = ino_out;
@@ -126,7 +128,7 @@ int chfs_client::_create(inum parent, const char *name, extent_protocol::types t
 
     EXT_RPC(ec->put(parent,entries2str(parent,entries),txid));
     lc->release(parent);
-    std::cout<<"create:"<<ino_out<<" "<<type<<std::endl;
+    std::cout<<"create:"<<name<<" "<<type<<std::endl;
     return r;
 }
 //parent/name --> link
@@ -333,8 +335,18 @@ chfs_client::mkdir(inum parent, const char *name, mode_t mode, inum &ino_out)
     return res;
 }
 
+
 int
 chfs_client::lookup(inum parent, const char *name, bool &found, inum &ino_out)
+{
+    lc->acquire(parent);
+    auto ret = lookup_lockfree(parent,name,found,ino_out);
+    lc->release(parent);
+    return ret;
+}
+
+int
+chfs_client::lookup_lockfree(inum parent, const char *name, bool &found, inum &ino_out)
 {
     std::cout<<"lookup"<<std::endl;
     int r = OK;
@@ -347,11 +359,11 @@ chfs_client::lookup(inum parent, const char *name, bool &found, inum &ino_out)
 
     // the job of parsing path is done by fuse,which we can't see the detail
     // we just save data in symlink and read it in readlink
-    assert(isdir(parent));
-    lc->acquire(parent);
+    // assert(isdir(parent));
+
     std::list<dirent> entries;
-    readdir(parent,entries);
-    lc->release(parent);
+    readdir_lockfree(parent,entries);
+
     found = false;
     for(auto const &entry:entries){
         if(strcmp(name,entry.name.c_str())==0){
@@ -364,9 +376,16 @@ chfs_client::lookup(inum parent, const char *name, bool &found, inum &ino_out)
 
     return r;
 }
-
 int
 chfs_client::readdir(inum dir, std::list<dirent> &list)
+{
+    lc->acquire(dir);
+    auto ret = readdir_lockfree(dir,list);
+    lc->release(dir);
+    return ret;
+}
+int
+chfs_client::readdir_lockfree(inum dir, std::list<dirent> &list)
 {
     std::cout<<"readdir"<<std::endl;
     int r = OK;
@@ -381,15 +400,18 @@ chfs_client::readdir(inum dir, std::list<dirent> &list)
 
     assert(list.empty());
     std::string buf;
-    lc->acquire(dir);
+
     EXT_RPC(ec->get(dir,buf));
-    lc->release(dir);
+
     std::stringstream ss(buf);
     dirent entry;
     while(std::getline(ss,entry.name,'\0')){
         ss >> entry.inum;
         list.push_back(entry);
+        std::cout<<entry.name<<std::endl;
     }
+
+    std::cout<<"dir"<<dir<<" entries:"<<list.size()<<std::endl;
 
 
     return r;
@@ -397,6 +419,15 @@ chfs_client::readdir(inum dir, std::list<dirent> &list)
 
 int
 chfs_client::read(inum ino, size_t size, off_t off, std::string &data)
+{
+    lc->acquire(ino);
+    auto ret = read_lockfree(ino,size,off,data);
+    lc->release(ino);
+    return ret;
+}
+
+int
+chfs_client::read_lockfree(inum ino, size_t size, off_t off, std::string &data)
 {
     int r = OK;
 
@@ -408,10 +439,10 @@ chfs_client::read(inum ino, size_t size, off_t off, std::string &data)
     std::cout<<"read:"<<ino<<" "<<size<<std::endl;
     assert(size >=0);
     assert(off >=0);
-    lc->acquire(ino);
+
     EXT_RPC(ec->get(ino,data));
     // assert(size+off <= data.length());// it's valid and substr work normally
-    lc->release(ino);
+
     data = data.substr(off,size);
 
     // std::cout<<"read"<<ino<<" "<<size<<" "<<off<<std::endl;
@@ -489,7 +520,7 @@ int chfs_client::unlink(inum parent,const char *name)
     bool found;
     inum ino;
     lc->acquire(parent);
-    lookup(parent,name,found,ino);
+    lookup_lockfree(parent,name,found,ino);
     if(!found){
         return NOENT;
     }
@@ -498,11 +529,12 @@ int chfs_client::unlink(inum parent,const char *name)
     EXT_RPC(ec->begin(txid));
     lc->acquire(ino);
     EXT_RPC(ec->remove(ino,txid));
-    lc->release(ino);
+    
     std::list<dirent> entries;
-    readdir(parent,entries);
+    readdir_lockfree(parent,entries);
     entries.remove_if([&name](const auto &entry){return strcmp(entry.name.c_str(),name)==0;});
     EXT_RPC(ec->put(parent,entries2str(parent,entries),txid));
+    lc->release(ino);
     lc->release(parent);
     EXT_RPC(ec->commit(txid));
     return r;
