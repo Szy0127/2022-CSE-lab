@@ -25,17 +25,17 @@ class raft {
     friend class thread_pool;
 
 #define RAFT_LOG(fmt, args...) \
-    do {                       \
-    } while (0);
+    // do {                       \
+    // } while (0);
 
-    // #define RAFT_LOG(fmt, args...)                                                                                   \
-//     do {                                                                                                         \
-//         auto now =                                                                                               \
-//             std::chrono::duration_cast<std::chrono::milliseconds>(                                               \
-//                 std::chrono::system_clock::now().time_since_epoch())                                             \
-//                 .count();                                                                                        \
-//         printf("[%ld][%s:%d][node %d term %d] " fmt "\n", now, __FILE__, __LINE__, my_id, current_term, ##args); \
-//     } while (0);
+    #define RAFT_LOG(fmt, args...)                                                                                   \
+    do {                                                                                                         \
+        auto now =                                                                                               \
+            std::chrono::duration_cast<std::chrono::milliseconds>(                                               \
+                std::chrono::system_clock::now().time_since_epoch())                                             \
+                .count();                                                                                        \
+        printf("[%ld][%s:%d][node %d term %d] " fmt "\n", now, __FILE__, __LINE__, my_id, current_term, ##args); \
+    } while (0);
 
 public:
     raft(
@@ -247,6 +247,7 @@ int raft<state_machine, command>::request_vote(request_vote_args args, request_v
     if(args.term < current_term){
         reply.term = current_term;
         reply.vote_granted = false;
+        RAFT_LOG("%d not vote for %d\n",my_id,args.candidate_id);
         return OK;
     }
     if(vote_for == -1 || vote_for == args.candidate_id){
@@ -256,8 +257,9 @@ int raft<state_machine, command>::request_vote(request_vote_args args, request_v
             (args.last_log_term == last_log_term && args.last_log_index >= last_log_index)
         ){
             reply.term = current_term;//useless?
+            current_term = args.term;
             reply.vote_granted = true;
-            RAFT_LOG("%d voted for %d\n",my_id,args.candidate_id);
+            RAFT_LOG("%d vote for %d\n",my_id,args.candidate_id);
             return OK;
         }
     }
@@ -272,8 +274,9 @@ void raft<state_machine, command>::handle_request_vote_reply(int target, const r
     std::unique_lock<std::mutex> _(mtx);
     if(reply.vote_granted){
         grand.emplace(target);
-        if(grand.size() > rpc_clients.size()/2){
+        if(role != leader && grand.size() > rpc_clients.size()/2){
             role = leader;
+            RAFT_LOG("%d become leader\n",my_id);
         }
     }else{
         current_term = reply.term;
@@ -364,6 +367,8 @@ void raft<state_machine, command>::run_background_election() {
         }
         if(role==follower){
             RAFT_LOG("%d become candidate\n",my_id);
+            grand.clear();
+            vote_for = -1;
             role = candidate;
             current_term++;
             request_vote_args arg;
@@ -432,7 +437,7 @@ void raft<state_machine, command>::run_background_ping() {
             arg.term = current_term;
             arg.leader_id = my_id;
             for(auto i = 0 ;i < rpc_clients.size();i++){
-                RAFT_LOG("%d ping %d\n",my_id,i);
+                // RAFT_LOG("%d ping %d\n",my_id,i);
                 thread_pool->addObjJob(this, &raft::send_append_entries, i, arg);
             }
         }
