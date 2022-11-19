@@ -331,20 +331,20 @@ int raft<state_machine, command>::append_entries(append_entries_args<command> ar
         RAFT_LOG("leader received from node%d",arg.leader_id);
         return OK;//wait for next req
     }
-    if(leader_id!=arg.leader_id){//update my leader
-        reply.success = false;
-        leader_id = arg.leader_id;
-        return OK;
-    }
+    // if(leader_id!=arg.leader_id){//update my leader
+    //     reply.success = false;
+    //     leader_id = arg.leader_id;
+    //     return OK;
+    // }
     /*
         commit request may have empty log to be updated,so entries.empty()!= ping
         we cant update commit index in ping
         we cant do complex things in ping
         so we need a tag to recognize ping
     */
+    leader_id = arg.leader_id;
+    current_term = arg.term;
     if(arg.prev_log_term == 0){
-        leader_id = arg.leader_id;
-        current_term = arg.term;
         reply.success = true;
         // if(arg.leader_commit > commit_index){
         //     auto size = log.size()-1;
