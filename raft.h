@@ -509,7 +509,7 @@ void raft<state_machine, command>::run_background_election() {
             arg.last_log_index = log.size()-1;
             arg.last_log_term = log.back().first;
             for(auto i = 0 ;i < rpc_clients.size();i++){
-                RAFT_LOG("send request to node%d,lastlogterm:%d",my_id,i,arg.last_log_term);
+                RAFT_LOG("send request to node%d,lastlogterm:%d",i,arg.last_log_term);
                 thread_pool->addObjJob(this, &raft::send_request_vote, i, arg);
             }
         }
@@ -532,6 +532,9 @@ void raft<state_machine, command>::run_background_commit() {
         std::unique_lock<std::mutex> _(mtx);
         if(role==leader){
             // RAFT_LOG("commit");
+            if(log.size()==1){//empty
+                continue;
+            }
             for(auto i = 0 ;i < rpc_clients.size();i++){
                 append_entries_args<command> arg;
                 arg.term = current_term;
