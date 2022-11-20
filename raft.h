@@ -23,11 +23,11 @@ class raft {
     static_assert(std::is_base_of<raft_command, command>(), "command must inherit from raft_command");
 
     friend class thread_pool;
-
+/*
  #define RAFT_LOG(fmt, args...) \
      do {                       \
      } while (0);
-/*
+*/
 #define RAFT_LOG(fmt, args...)                                                                                   \
 do {                                                                                                         \
     auto now =                                                                                               \
@@ -36,7 +36,7 @@ do {                                                                            
             .count();                                                                                        \
     printf("[%ld][%s:%d][node %d term %d] " fmt "\n", now, __FILE__, __LINE__, my_id, current_term, ##args); \
 } while (0);
-*/
+
 public:
     raft(
         rpcs *rpc_server,
@@ -159,7 +159,19 @@ raft<state_machine, command>::raft(rpcs *server, std::vector<rpcc *> clients, in
     commit_index(0),
     last_applied(0),
     role(follower) {
-    log.emplace_back(0,command{});
+    std::unique_lock<std::mutex> _(mtx);
+    storage->recover(log,current_term,commit_index,last_applied);
+    if(log.empty()){
+        auto cmd = command{};
+        storage->append_log(0,cmd);
+        log.emplace_back(0,cmd);
+    }else{
+        auto log_it = log.begin();
+        log_it++;//empty log
+        for(;log_it!=log.end();log_it++){
+            state->apply_log(log_it->second);
+        }
+    }
     thread_pool = new ThrPool(32);
 
     // Register the rpcs.
@@ -236,6 +248,7 @@ bool raft<state_machine, command>::new_command(command cmd, int &term, int &inde
     }
     index = log.size();//last one?
     RAFT_LOG("get new log[%d]",log.size());
+    storage->append_log(current_term,cmd);
     log.emplace_back(current_term,cmd);
     return true;
 }
@@ -357,6 +370,7 @@ int raft<state_machine, command>::append_entries(append_entries_args<command> ar
         if(commit_index < arg.leader_commit){
             RAFT_LOG("ping update commit index from %d to %d",commit_index,arg.leader_commit);
             commit_index = arg.leader_commit;
+            storage->update_meta(current_term,commit_index,last_applied);
         }
         return OK;
     }
@@ -373,6 +387,7 @@ int raft<state_machine, command>::append_entries(append_entries_args<command> ar
         reply.success = false;
         RAFT_LOG("log[%d].term=%d,not %d",log.size()-1,log_it->first,arg.prev_log_term);
         log.pop_back();
+        storage->write_logs(log);
         return OK;
     }
     //log_it.term == prev_log_term
@@ -380,11 +395,13 @@ int raft<state_machine, command>::append_entries(append_entries_args<command> ar
     log_it++;
     log.erase(log_it,log.end());
     log.splice(log.end(),arg.entries);
+    storage->write_logs(log);
     // RAFT_LOG("updated log size:%d",log.size());
     if(arg.leader_commit > commit_index){
         auto size = log.size()-1;
         RAFT_LOG("update commit index from %d to %d,from node%d",commit_index,arg.leader_commit<=size ? arg.leader_commit : size,arg.leader_id);
         commit_index = arg.leader_commit<=size ? arg.leader_commit : size;
+        storage->update_meta(current_term,commit_index,last_applied);
     }
 
     return OK;
@@ -429,6 +446,7 @@ void raft<state_machine, command>::handle_append_entries_reply(int node, const a
             if(p.first > commit_index){
                 RAFT_LOG("update commit index to %d",p.first);
                 commit_index = p.first;
+                storage->update_meta(current_term,commit_index,last_applied);
             }
             break;
         } 
@@ -590,6 +608,7 @@ void raft<state_machine, command>::run_background_apply() {
                 state->apply_log(log_it->second);
             }
             last_applied = commit_index;
+            storage->update_meta(current_term,commit_index,last_applied);
         }
     }    
     
