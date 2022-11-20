@@ -24,10 +24,10 @@ class raft {
 
     friend class thread_pool;
 
-// #define RAFT_LOG(fmt, args...) \
-    // do {                       \
-    // } while (0);
-
+ #define RAFT_LOG(fmt, args...) \
+     do {                       \
+     } while (0);
+/*
 #define RAFT_LOG(fmt, args...)                                                                                   \
 do {                                                                                                         \
     auto now =                                                                                               \
@@ -36,7 +36,7 @@ do {                                                                            
             .count();                                                                                        \
     printf("[%ld][%s:%d][node %d term %d] " fmt "\n", now, __FILE__, __LINE__, my_id, current_term, ##args); \
 } while (0);
-
+*/
 public:
     raft(
         rpcs *rpc_server,
@@ -159,8 +159,7 @@ raft<state_machine, command>::raft(rpcs *server, std::vector<rpcc *> clients, in
     commit_index(0),
     last_applied(0),
     role(follower) {
-    //cant be zero,because we make a rule that prev_log_term=0 marks ping
-    log.emplace_back(1,command{});
+    log.emplace_back(0,command{});
     thread_pool = new ThrPool(32);
 
     // Register the rpcs.
@@ -330,7 +329,11 @@ int raft<state_machine, command>::append_entries(append_entries_args<command> ar
         RAFT_LOG("current term:%d > %d,append fail from node%d",current_term,arg.term,arg.leader_id);
         return OK;
     }
-    if(role==leader&&arg.leader_id!=my_id){
+    if(role==leader){
+        if(arg.leader_id==my_id){
+            reply.success = true;
+            return OK;
+        }
         role = follower;
         reply.success = false;
         RAFT_LOG("leader received from node%d",arg.leader_id);
@@ -349,13 +352,12 @@ int raft<state_machine, command>::append_entries(append_entries_args<command> ar
     */
     leader_id = arg.leader_id;
     current_term = arg.term;
-    if(arg.prev_log_term == 0){
+    if(arg.entries.empty()){
         reply.success = true;
-        // if(arg.leader_commit > commit_index){
-        //     auto size = log.size()-1;
-        //     RAFT_LOG("update commit index from %d to %d,from node%d",commit_index,arg.leader_commit<=size ? arg.leader_commit : size,arg.leader_id);
-        //     commit_index = arg.leader_commit<=size ? arg.leader_commit : size;
-        // }
+        if(commit_index < arg.leader_commit){
+            RAFT_LOG("ping update commit index from %d to %d",commit_index,arg.leader_commit);
+            commit_index = arg.leader_commit;
+        }
         return OK;
     }
     
@@ -369,8 +371,8 @@ int raft<state_machine, command>::append_entries(append_entries_args<command> ar
     std::advance(log_it,arg.prev_log_index);
     if(log_it->first != arg.prev_log_term){
         reply.success = false;
-        log.pop_back();
         RAFT_LOG("log[%d].term=%d,not %d",log.size()-1,log_it->first,arg.prev_log_term);
+        log.pop_back();
         return OK;
     }
     //log_it.term == prev_log_term
@@ -538,9 +540,6 @@ void raft<state_machine, command>::run_background_commit() {
         std::unique_lock<std::mutex> _(mtx);
         if(role==leader){
             // RAFT_LOG("commit");
-            if(log.size()==1){//empty
-                continue;
-            }
             for(auto i = 0 ;i < rpc_clients.size();i++){
                 append_entries_args<command> arg;
                 arg.term = current_term;
@@ -551,18 +550,15 @@ void raft<state_machine, command>::run_background_commit() {
                 auto log_it = log.begin();
                 std::advance(log_it,prev_index);
                 arg.prev_log_term = log_it->first;
-                for(log_it++;log_it!=log.end();log_it++){
+                log_it++;
+                if(log_it==log.end()){
+                    continue;
+                }
+                for(;log_it!=log.end();log_it++){
                     arg.entries.push_back(*log_it);
                 }
-
-                //if update to date, same as ping,but we dont know if target knows commit
-                if(!arg.entries.empty()){
-                    RAFT_LOG("update to node%d log[%d-%d],previndex:%d",i,next_index[i],arg.entries.size()+next_index[i]-1,arg.prev_log_index);
-                }else{
-                    RAFT_LOG("update to node%d log[%d] is commited",i,next_index[i]);
-                }
+                RAFT_LOG("update to node%d log[%d-%d],previndex:%d,prevterm:%d",i,next_index[i],arg.entries.size()+next_index[i]-1,arg.prev_log_index,arg.prev_log_term);
                 thread_pool->addObjJob(this, &raft::send_append_entries, i, arg);
-                
             }
         }
     }  
@@ -617,9 +613,9 @@ void raft<state_machine, command>::run_background_ping() {
             append_entries_args<command> arg;
             arg.term = current_term;
             arg.leader_id = my_id;
-            arg.prev_log_term = 0;
             for(auto i = 0 ;i < rpc_clients.size();i++){
-                // RAFT_LOG("%d ping %d",my_id,i);
+                arg.leader_commit = commit_index < match_index[i] ? commit_index : match_index[i];
+                // RAFT_LOG("ping %d,commit:%d",i,arg.leader_commit);
                 thread_pool->addObjJob(this, &raft::send_append_entries, i, arg);
             }
         }
