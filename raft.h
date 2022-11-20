@@ -261,9 +261,10 @@ int raft<state_machine, command>::request_vote(request_vote_args args, request_v
     if(args.term < current_term){
         reply.term = current_term;
         reply.vote_granted = false;
-        RAFT_LOG("%d not vote for %d",my_id,args.candidate_id);
+        RAFT_LOG("not vote for %d because to old",args.candidate_id);
         return OK;
     }
+    current_term = args.term;
     if(vote_for == -1 || vote_for == args.candidate_id){
         auto last_log_term = log.back().first;
         auto last_log_index = log.size()-1;
@@ -271,11 +272,15 @@ int raft<state_machine, command>::request_vote(request_vote_args args, request_v
             (args.last_log_term == last_log_term && args.last_log_index >= last_log_index)
         ){
             reply.term = current_term;//useless?
-            current_term = args.term;
+            // current_term = args.term;
             reply.vote_granted = true;
-            RAFT_LOG("vote for %d,lastlogterm:%d,candidates lastlogterm:%d",args.candidate_id,last_log_term,args.last_log_term);
+            RAFT_LOG("vote for node%d,lastlogterm:%d,candidates lastlogterm:%d",args.candidate_id,last_log_term,args.last_log_term);
             return OK;
+        }else{
+            RAFT_LOG("cant vote for node%d,lt:%d,clt:%d,li:%d,cli:%d",args.candidate_id,last_log_term,args.last_log_term,last_log_index,args.last_log_index);
         }
+    }else{
+        RAFT_LOG("cant vote for node%d,already vote for node%d",args.candidate_id,vote_for);
     }
     reply.term = current_term;
     reply.vote_granted = false;
@@ -322,7 +327,7 @@ int raft<state_machine, command>::append_entries(append_entries_args<command> ar
     // RAFT_LOG("receive log from node%d",arg.leader_id);
     if(arg.term < current_term){
         reply.success = false;
-        RAFT_LOG("current term:%d > %d",current_term,arg.term);
+        RAFT_LOG("current term:%d > %d,append fail from node%d",current_term,arg.term,arg.leader_id);
         return OK;
     }
     if(role==leader&&arg.leader_id!=my_id){
@@ -396,7 +401,7 @@ void raft<state_machine, command>::handle_append_entries_reply(int node, const a
     }
     if(!reply.success && role==leader){
         if(reply.term > current_term){
-            RAFT_LOG("term too old,become follower");
+            RAFT_LOG("term too old,become follower,update term to %d",reply.term);
             current_term = reply.term;
             role = follower;
         }else{
@@ -497,12 +502,12 @@ void raft<state_machine, command>::run_background_election() {
             continue;
         }
         std::unique_lock<std::mutex> _(mtx);//protect role
-        if(role==follower){
-            RAFT_LOG("become candidate",my_id);
+        if(role==follower || role == candidate){
             grand.clear();
             vote_for = -1;
             role = candidate;
             current_term++;
+            RAFT_LOG("become candidate");
             request_vote_args arg;
             arg.term = current_term;
             arg.candidate_id = my_id;
@@ -528,7 +533,8 @@ void raft<state_machine, command>::run_background_commit() {
     while (true) {
         if (is_stopped()) return;
         // Lab3: Your code here:
-        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        //backup test may recover from 50 to 1,cause much time to wait,may be considered as not making agreement;
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
         std::unique_lock<std::mutex> _(mtx);
         if(role==leader){
             // RAFT_LOG("commit");
@@ -574,7 +580,8 @@ void raft<state_machine, command>::run_background_apply() {
     while (true) {
         if (is_stopped()) return;
         // Lab3: Your code here:
-        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        //rpc_count test limits 30rpc in election,but when get the result,many pings may already happened
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
         std::unique_lock<std::mutex> _(mtx);
         // RAFT_LOG("apply");
         if(last_applied < commit_index){
@@ -603,7 +610,7 @@ void raft<state_machine, command>::run_background_ping() {
     while (true) {
         if (is_stopped()) return;
         // Lab3: Your code here:
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::this_thread::sleep_for(std::chrono::milliseconds(120));
         std::unique_lock<std::mutex> _(mtx);
         if(role==leader){
             // RAFT_LOG("ping");
