@@ -15,8 +15,8 @@ public:
 
     void append_log(int term,const command &cmd);
     void write_logs(std::list<std::pair<int,command>> &log);
-    void recover(std::list<std::pair<int,command>> &log,int &current_term,int &commit_index,int &last_applied);
-    void update_meta(int current_term,int commit_index,int last_applied);
+    void recover(std::list<std::pair<int,command>> &log,int &current_term,int &commit_index,int &last_applied,int &vote_for);
+    void update_meta(int current_term,int commit_index,int last_applied,int vote_for=-1);
 
 private:
     std::mutex mtx;
@@ -55,7 +55,7 @@ void raft_storage<command>::append_log(int term,const command &cmd) {
 
 template <typename command>
 void raft_storage<command>::recover(std::list<std::pair<int,command>> &log,
-int &current_term,int &commit_index,int &last_applied){
+int &current_term,int &commit_index,int &last_applied,int &vote_for){
     // Lab3: Your code here
     std::unique_lock<std::mutex> _(mtx);
     {
@@ -81,7 +81,7 @@ int &current_term,int &commit_index,int &last_applied){
     if(f.fail()){
         return;
     }
-    f>>current_term>>commit_index>>last_applied;
+    f>>current_term>>commit_index>>last_applied>>vote_for;
 }
 
 template <typename command>
@@ -102,10 +102,10 @@ void raft_storage<command>::write_logs(std::list<std::pair<int,command>> &log){
 }
 
 template <typename command>
-void raft_storage<command>::update_meta(int current_term,int commit_index,int last_applied){
+void raft_storage<command>::update_meta(int current_term,int commit_index,int last_applied,int vote_for){
     std::unique_lock<std::mutex> _(mtx);
     std::ofstream f(dir_path+"/"+meta_file,std::ios::trunc);
-    f<<current_term<<" "<<commit_index<<" "<<last_applied;
+    f<<current_term<<" "<<commit_index<<" "<<last_applied<<" "<<vote_for;
 }
 
 

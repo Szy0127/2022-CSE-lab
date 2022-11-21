@@ -23,11 +23,11 @@ class raft {
     static_assert(std::is_base_of<raft_command, command>(), "command must inherit from raft_command");
 
     friend class thread_pool;
-/*
+
  #define RAFT_LOG(fmt, args...) \
      do {                       \
      } while (0);
-*/
+/*
 #define RAFT_LOG(fmt, args...)                                                                                   \
 do {                                                                                                         \
     auto now =                                                                                               \
@@ -36,7 +36,7 @@ do {                                                                            
             .count();                                                                                        \
     printf("[%ld][%s:%d][node %d term %d] " fmt "\n", now, __FILE__, __LINE__, my_id, current_term, ##args); \
 } while (0);
-
+*/
 public:
     raft(
         rpcs *rpc_server,
@@ -160,7 +160,7 @@ raft<state_machine, command>::raft(rpcs *server, std::vector<rpcc *> clients, in
     last_applied(0),
     role(follower) {
     std::unique_lock<std::mutex> _(mtx);
-    storage->recover(log,current_term,commit_index,last_applied);
+    storage->recover(log,current_term,commit_index,last_applied,vote_for);
     if(log.empty()){
         auto cmd = command{};
         storage->append_log(0,cmd);
@@ -169,6 +169,7 @@ raft<state_machine, command>::raft(rpcs *server, std::vector<rpcc *> clients, in
         auto log_it = log.begin();
         log_it++;//empty log
         for(;log_it!=log.end();log_it++){
+            RAFT_LOG("recover state[%d]",log_it->first);
             state->apply_log(log_it->second);
         }
     }
@@ -223,6 +224,7 @@ bool raft<state_machine, command>::is_stopped() {
 
 template <typename state_machine, typename command>
 bool raft<state_machine, command>::is_leader(int &term) {
+    std::unique_lock<std::mutex> _(mtx);
     term = current_term;
     return role == leader;
 }
@@ -268,7 +270,6 @@ template <typename state_machine, typename command>
 int raft<state_machine, command>::request_vote(request_vote_args args, request_vote_reply &reply) {
     // Lab3: Your code here
     // RAFT_LOG("request_vote");
-    heartbeat.store(true);
     std::unique_lock<std::mutex> _(mtx);
     if(args.term < current_term){
         reply.term = current_term;
@@ -276,7 +277,11 @@ int raft<state_machine, command>::request_vote(request_vote_args args, request_v
         RAFT_LOG("not vote for %d because to old",args.candidate_id);
         return OK;
     }
-    current_term = args.term;
+    if(current_term < args.term){//vote for a new leader
+        role = follower;    //may be candidate itself
+        vote_for = -1;
+        current_term = args.term;
+    }
     if(vote_for == -1 || vote_for == args.candidate_id){
         auto last_log_term = log.back().first;
         auto last_log_index = log.size()-1;
@@ -286,7 +291,10 @@ int raft<state_machine, command>::request_vote(request_vote_args args, request_v
             reply.term = current_term;//useless?
             // current_term = args.term;
             reply.vote_granted = true;
+            vote_for = args.candidate_id;
+            storage->update_meta(current_term,commit_index,last_applied,vote_for);
             RAFT_LOG("vote for node%d,lastlogterm:%d,candidates lastlogterm:%d",args.candidate_id,last_log_term,args.last_log_term);
+            heartbeat.store(true);
             return OK;
         }else{
             RAFT_LOG("cant vote for node%d,lt:%d,clt:%d,li:%d,cli:%d",args.candidate_id,last_log_term,args.last_log_term,last_log_index,args.last_log_index);
@@ -349,20 +357,12 @@ int raft<state_machine, command>::append_entries(append_entries_args<command> ar
         }
         role = follower;
         reply.success = false;
+        vote_for = -1;
+        storage->update_meta(current_term,commit_index,last_applied,vote_for);
         RAFT_LOG("leader received from node%d",arg.leader_id);
         return OK;//wait for next req
     }
-    // if(leader_id!=arg.leader_id){//update my leader
-    //     reply.success = false;
-    //     leader_id = arg.leader_id;
-    //     return OK;
-    // }
-    /*
-        commit request may have empty log to be updated,so entries.empty()!= ping
-        we cant update commit index in ping
-        we cant do complex things in ping
-        so we need a tag to recognize ping
-    */
+
     leader_id = arg.leader_id;
     current_term = arg.term;
     if(arg.entries.empty()){
@@ -511,31 +511,47 @@ void raft<state_machine, command>::run_background_election() {
     // Work for followers and candidates.
 
     
+    auto timeout = rand()%150+150;
+    auto elect_time = 0;
     while (true) {
         if (is_stopped()) return;
         // Lab3: Your code here
 
-        auto t = rand()%150+150;
-        std::this_thread::sleep_for(std::chrono::milliseconds(t));
+        std::this_thread::sleep_for(std::chrono::milliseconds(timeout));
         if(heartbeat.load()){
             heartbeat.store(false);
             continue;
         }
-        std::unique_lock<std::mutex> _(mtx);//protect role
-        if(role==follower || role == candidate){
+        std::unique_lock<std::mutex> _(mtx);
+        if(role==follower){
             grand.clear();
             vote_for = -1;
+            elect_time = 0;
             role = candidate;
             current_term++;
+            storage->update_meta(current_term,commit_index,last_applied);
             RAFT_LOG("become candidate");
+        }
+        if(role==candidate){
             request_vote_args arg;
             arg.term = current_term;
             arg.candidate_id = my_id;
             arg.last_log_index = log.size()-1;
             arg.last_log_term = log.back().first;
+            RAFT_LOG("send request to all,lastlogterm:%d",arg.last_log_term);
             for(auto i = 0 ;i < rpc_clients.size();i++){
-                RAFT_LOG("send request to node%d,lastlogterm:%d",i,arg.last_log_term);
                 thread_pool->addObjJob(this, &raft::send_request_vote, i, arg);
+            }
+            // candidate may repeat sending request several times
+            // otherwise
+            timeout = 50;
+            elect_time++;
+            if(elect_time == 3){
+                timeout = rand()%150+150;
+                role = follower;
+                vote_for = -1;
+                storage->update_meta(current_term,commit_index,last_applied);
+                RAFT_LOG("candidate become follower");
             }
         }
  
@@ -554,7 +570,7 @@ void raft<state_machine, command>::run_background_commit() {
         if (is_stopped()) return;
         // Lab3: Your code here:
         //backup test may recover from 50 to 1,cause much time to wait,may be considered as not making agreement;
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
         std::unique_lock<std::mutex> _(mtx);
         if(role==leader){
             // RAFT_LOG("commit");
@@ -625,7 +641,7 @@ void raft<state_machine, command>::run_background_ping() {
     while (true) {
         if (is_stopped()) return;
         // Lab3: Your code here:
-        std::this_thread::sleep_for(std::chrono::milliseconds(120));
+        std::this_thread::sleep_for(std::chrono::milliseconds(125));
         std::unique_lock<std::mutex> _(mtx);
         if(role==leader){
             // RAFT_LOG("ping");
