@@ -173,6 +173,7 @@ raft<state_machine, command>::raft(rpcs *server, std::vector<rpcc *> clients, in
             state->apply_log(log_it->second);
         }
     }
+    srand(time(nullptr));
     thread_pool = new ThrPool(32);
 
     // Register the rpcs.
@@ -337,7 +338,7 @@ void raft<state_machine, command>::handle_request_vote_reply(int target, const r
 template <typename state_machine, typename command>
 int raft<state_machine, command>::append_entries(append_entries_args<command> arg, append_entries_reply &reply) {
     // Lab3: Your code here
-    // RAFT_LOG("append_entries");
+    RAFT_LOG("append_entries");
 
     heartbeat.store(true);
     std::unique_lock<std::mutex> _(mtx);
@@ -511,6 +512,7 @@ void raft<state_machine, command>::run_background_election() {
     // Work for followers and candidates.
 
     
+    // election timeout > ping
     auto timeout = rand()%150+150;
     auto elect_time = 0;
     while (true) {
@@ -520,6 +522,7 @@ void raft<state_machine, command>::run_background_election() {
         std::this_thread::sleep_for(std::chrono::milliseconds(timeout));
         if(heartbeat.load()){
             heartbeat.store(false);
+            timeout = rand()%150+150;
             continue;
         }
         std::unique_lock<std::mutex> _(mtx);
@@ -544,7 +547,7 @@ void raft<state_machine, command>::run_background_election() {
             }
             // candidate may repeat sending request several times
             // otherwise
-            timeout = 50;
+            timeout = 50; // < election timeout
             elect_time++;
             if(elect_time == 3){
                 timeout = rand()%150+150;
@@ -641,10 +644,10 @@ void raft<state_machine, command>::run_background_ping() {
     while (true) {
         if (is_stopped()) return;
         // Lab3: Your code here:
-        std::this_thread::sleep_for(std::chrono::milliseconds(125));
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
         std::unique_lock<std::mutex> _(mtx);
         if(role==leader){
-            // RAFT_LOG("ping");
+            RAFT_LOG("ping all");
             append_entries_args<command> arg;
             arg.term = current_term;
             arg.leader_id = my_id;
