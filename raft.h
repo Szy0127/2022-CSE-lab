@@ -167,9 +167,11 @@ raft<state_machine, command>::raft(rpcs *server, std::vector<rpcc *> clients, in
         log.emplace_back(0,cmd);
     }else{
         auto log_it = log.begin();
-        log_it++;//empty log
-        for(;log_it!=log.end();log_it++){
-            RAFT_LOG("recover state[%d]",log_it->first);
+        log_it++;//skip empty log
+        auto log_end = log.begin();
+        std::advance(log_end,last_applied+1);
+        for(;log_it!=log_end;log_it++){
+            RAFT_LOG("recover state,term=%d",log_it->first);
             state->apply_log(log_it->second);
         }
     }
@@ -386,8 +388,15 @@ int raft<state_machine, command>::append_entries(append_entries_args<command> ar
     std::advance(log_it,arg.prev_log_index);
     if(log_it->first != arg.prev_log_term){
         reply.success = false;
-        RAFT_LOG("log[%d].term=%d,not %d",log.size()-1,log_it->first,arg.prev_log_term);
+        RAFT_LOG("log[%d].term=%d,not %d",arg.prev_log_index,log_it->first,arg.prev_log_term);
         log.pop_back();
+        if(log.size() <= commit_index){
+            commit_index--;
+            if(last_applied > commit_index){
+                RAFT_LOG("last_applied--");
+                last_applied--;
+            }
+        }
         storage->write_logs(log);
         return OK;
     }
@@ -573,7 +582,7 @@ void raft<state_machine, command>::run_background_commit() {
         if (is_stopped()) return;
         // Lab3: Your code here:
         //backup test may recover from 50 to 1,cause much time to wait,may be considered as not making agreement;
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
         std::unique_lock<std::mutex> _(mtx);
         if(role==leader){
             // RAFT_LOG("commit");
