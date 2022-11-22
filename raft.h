@@ -342,7 +342,6 @@ int raft<state_machine, command>::append_entries(append_entries_args<command> ar
     // Lab3: Your code here
     RAFT_LOG("append_entries");
 
-    heartbeat.store(true);
     std::unique_lock<std::mutex> _(mtx);
 
     reply.term = current_term;    
@@ -365,6 +364,13 @@ int raft<state_machine, command>::append_entries(append_entries_args<command> ar
         RAFT_LOG("leader received from node%d",arg.leader_id);
         return OK;//wait for next req
     }
+    if(current_term==arg.term &&  vote_for!=arg.leader_id){
+        reply.success = false;
+        reply.term = 0;
+        RAFT_LOG("already voted for node%d,cant append from %d",arg.leader_id);
+        return OK;
+    }
+    heartbeat.store(true);
 
     leader_id = arg.leader_id;
     current_term = arg.term;
@@ -425,10 +431,15 @@ void raft<state_machine, command>::handle_append_entries_reply(int node, const a
         return;
     }
     std::unique_lock<std::mutex> _(mtx);
-    if(role==follower){
+    if(role==follower || role == candidate){
         return;
     }
-    if(!reply.success && role==leader){
+    if(!reply.success){
+        if(reply.term == 0){
+            RAFT_LOG("node%d reject append,become follower",node);
+            role = follower;
+            return;
+        }
         if(reply.term > current_term){
             RAFT_LOG("term too old,become follower,update term to %d",reply.term);
             current_term = reply.term;
@@ -582,7 +593,7 @@ void raft<state_machine, command>::run_background_commit() {
         if (is_stopped()) return;
         // Lab3: Your code here:
         //backup test may recover from 50 to 1,cause much time to wait,may be considered as not making agreement;
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
         std::unique_lock<std::mutex> _(mtx);
         if(role==leader){
             // RAFT_LOG("commit");
