@@ -4,6 +4,7 @@
 #include "rpc.h"
 #include "raft_state_machine.h"
 #include <list>
+#include <vector>
 enum raft_rpc_opcodes {
     op_request_vote = 0x1212,
     op_append_entries = 0x3434,
@@ -40,21 +41,28 @@ public:
 marshall &operator<<(marshall &m, const request_vote_reply &reply);
 unmarshall &operator>>(unmarshall &u, request_vote_reply &reply);
 
+// use pair,convenient for raft.h to construct
 template <typename command>
 class log_entry {
 public:
     // Lab3: Your code here
+    int term;
+    command cmd;
 };
 
 template <typename command>
 marshall &operator<<(marshall &m, const log_entry<command> &entry) {
     // Lab3: Your code here
+    m<<entry.term;
+    m<<entry.cmd;
     return m;
 }
 
 template <typename command>
 unmarshall &operator>>(unmarshall &u, log_entry<command> &entry) {
     // Lab3: Your code here
+    u>>entry.term;
+    u>>entry.cmd;
     return u;
 }
 
@@ -117,6 +125,11 @@ unmarshall &operator>>(unmarshall &m, append_entries_reply &reply);
 class install_snapshot_args {
 public:
     // Lab3: Your code here
+    int term;
+    int leader_id;
+    int last_included_index;
+    int last_included_term;
+    std::vector<char> data;
 };
 
 marshall &operator<<(marshall &m, const install_snapshot_args &args);
@@ -125,6 +138,7 @@ unmarshall &operator>>(unmarshall &m, install_snapshot_args &args);
 class install_snapshot_reply {
 public:
     // Lab3: Your code here
+    int term;
 };
 
 marshall &operator<<(marshall &m, const install_snapshot_reply &reply);

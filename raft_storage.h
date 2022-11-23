@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <mutex>
 #include <list>
+#include <vector>
 #include <fstream>
 template <typename command>
 class raft_storage {
@@ -15,8 +16,10 @@ public:
 
     void append_log(int term,const command &cmd);
     void write_logs(std::list<std::pair<int,command>> &log);
-    void recover(std::list<std::pair<int,command>> &log,int &current_term,int &commit_index,int &last_applied,int &vote_for);
+    void recover(std::list<std::pair<int,command>> &log,std::vector<char> &snapshot,
+    int &current_term,int &commit_index,int &last_applied,int &last_snapshot_index,int &last_snapshot_term,int &vote_for);
     void update_meta(int current_term,int commit_index,int last_applied,int vote_for=-1);
+    void update_snapshot(std::vector<char> &snapshot,int last_snapshot_index,int last_snapshot_term); 
 
 private:
     std::mutex mtx;
@@ -24,6 +27,7 @@ private:
     std::string dir_path;// not contain /;
     std::string log_file{"log.bin"};
     std::string meta_file{"meta.bin"};
+    std::string snapshot_file{"snapshot.bin"};
 };
 
 template <typename command>
@@ -54,8 +58,8 @@ void raft_storage<command>::append_log(int term,const command &cmd) {
 }
 
 template <typename command>
-void raft_storage<command>::recover(std::list<std::pair<int,command>> &log,
-int &current_term,int &commit_index,int &last_applied,int &vote_for){
+void raft_storage<command>::recover(std::list<std::pair<int,command>> &log,std::vector<char> &snapshot,
+int &current_term,int &commit_index,int &last_applied,int &last_snapshot_index,int &last_snapshot_term,int &vote_for){
     // Lab3: Your code here
     std::unique_lock<std::mutex> _(mtx);
     {
@@ -76,12 +80,30 @@ int &current_term,int &commit_index,int &last_applied,int &vote_for){
             f.read((char*)&term,sizeof(int));
         }
     }
-
-    std::ifstream f(dir_path+"/"+meta_file);
-    if(f.fail()){
-        return;
+    {
+        std::ifstream f(dir_path+"/"+meta_file);
+        if(f.fail()){
+            return;
+        }
+        f>>current_term>>commit_index>>last_applied>>vote_for;
     }
-    f>>current_term>>commit_index>>last_applied>>vote_for;
+    {
+        std::ifstream f(dir_path+"/"+snapshot_file);
+        if(f.fail()){
+            return;
+        }
+        int i;
+        f.read((char*)&i,sizeof(int));
+        last_snapshot_index = i;
+        f.read((char*)&i,sizeof(int));
+        last_snapshot_term = i;
+        char c;
+        f.read(&c,1);
+        while(!f.eof()){
+            snapshot.push_back(c);
+            f.read(&c,1);
+        }
+    }
 }
 
 template <typename command>
@@ -107,6 +129,18 @@ void raft_storage<command>::update_meta(int current_term,int commit_index,int la
     std::ofstream f(dir_path+"/"+meta_file,std::ios::trunc);
     f<<current_term<<" "<<commit_index<<" "<<last_applied<<" "<<vote_for;
 }
+
+template <typename command>
+void raft_storage<command>::update_snapshot(std::vector<char> &snapshot,int last_snapshot_index,int last_snapshot_term){
+    std::unique_lock<std::mutex> _(mtx);
+    std::ofstream f(dir_path+"/"+snapshot_file,std::ios::trunc);
+    f.write((char*)&last_snapshot_index,sizeof(int));
+    f.write((char*)&last_snapshot_term,sizeof(int));
+    std::string data;
+    data.assign(snapshot.begin(),snapshot.end());
+    f<<data;
+}
+
 
 
 
