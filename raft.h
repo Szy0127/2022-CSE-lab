@@ -184,6 +184,7 @@ raft<state_machine, command>::raft(rpcs *server, std::vector<rpcc *> clients, in
     storage->recover(log,snapshot_data,current_term,commit_index,last_applied,last_snapshot_index,last_snapshot_term,vote_for);
     if(last_snapshot_index){
         state->apply_snapshot(snapshot_data);
+        RAFT_LOG("recover snapshot,last index:%d,last term:%d",last_snapshot_index,last_snapshot_term);
     }
     if(log.empty()){
         if(!last_snapshot_index){
@@ -304,10 +305,10 @@ bool raft<state_machine, command>::save_snapshot() {
     log_it++;
     log.erase(log.begin(),log_it);//remove [begin,it)
     RAFT_LOG("save snapshot,last index:%d,term:%d,logs remain:%ld",last_snapshot_index,last_snapshot_term,log.size());
-    storage->update_snapshot(snapshot_data,last_snapshot_index,last_snapshot_term);
-
     state->apply_snapshot(snapshot_data);//clear state,to match newcommand index
+    storage->update_snapshot(snapshot_data,last_snapshot_index,last_snapshot_term);
     storage->write_logs(log);
+
     if(role!=leader){
         return true;
     }
@@ -762,7 +763,7 @@ void raft<state_machine, command>::run_background_commit() {
                 arg.prev_log_index = prev_index;
                 auto log_it = log.begin();
                 std::advance(log_it,prev_index-last_snapshot_index);
-                arg.prev_log_term = log_it->first;
+                arg.prev_log_term = log_it == log.begin() ? last_snapshot_term:log_it->first;
                 if(!last_snapshot_index){
                     log_it++;
                 }
