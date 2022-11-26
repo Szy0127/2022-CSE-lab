@@ -15,16 +15,52 @@ chfs_command_raft::~chfs_command_raft() {
 
 int chfs_command_raft::size() const{ 
     // Lab3: Your code here
-    return 0;
+    //4cmd_tp 4type 8id
+    return 4+4+8+buf.size();
 }
 
 void chfs_command_raft::serialize(char *buf_out, int size) const {
     // Lab3: Your code here
+    int loc = 0;
+    for(auto i  = 0 ;i < 4 ;i++){
+        buf_out[loc+i] = ((char*)&cmd_tp)[i];
+    }
+    loc += 4;
+    for(auto i  = 0 ;i < 4 ;i++){
+        buf_out[loc+i] = ((char*)&type)[i];
+    }
+    loc += 4;
+    for(auto i  = 0 ;i < 8 ;i++){
+        buf_out[loc+i] = ((char*)&id)[i];
+    }
+    loc += 8;
+    for(auto i = 0; i < size-4-4-8;i++){
+        buf_out[loc+i] = buf[i];
+    }
+
     return;
 }
 
 void chfs_command_raft::deserialize(const char *buf_in, int size) {
     // Lab3: Your code here
+    int loc = 0;
+    for(auto i  = 0 ;i < 4 ;i++){
+        ((char*)&cmd_tp)[i] = buf_in[loc+i] ;
+    }
+    loc += 4;
+    for(auto i  = 0 ;i < 4 ;i++){
+        ((char*)&type)[i] = buf_in[loc+i] ;
+    }
+    loc += 4;
+    for(auto i  = 0 ;i < 8 ;i++){
+        ((char*)&id)[i] = buf_in[loc+i] ;
+    }
+    loc += 8;
+    // for(auto i = 0; i < size-4-4-8;i++){
+    //     buf[i] = buf_in[loc+i] ;
+    // }
+    buf.assign(buf_in+loc,buf_in+size);
+
     return;
 }
 

@@ -7,6 +7,7 @@
 #include <list>
 #include <vector>
 #include <fstream>
+
 template <typename command>
 class raft_storage {
 public:
@@ -51,16 +52,19 @@ void raft_storage<command>::append_log(int term,const command &cmd) {
     std::ofstream f(dir_path+"/"+log_file,std::ios::app);
     // f<<term<<std::endl;
     f.write((char*)&term,sizeof(int));
-    auto size = cmd.size();
-    char c[size];
+    int size = cmd.size();
+    char *c = new char[size];
     cmd.serialize(c,size);
+    f.write((char*)&size,sizeof(int));
     f.write(c,size);
+    delete[] c;
 }
 
 template <typename command>
 void raft_storage<command>::recover(std::list<std::pair<int,command>> &log,std::vector<char> &snapshot,
 int &current_term,int &commit_index,int &last_applied,int &last_snapshot_index,int &last_snapshot_term,int &vote_for){
     // Lab3: Your code here
+    std::cout<<"start recover"<<std::endl;
     std::unique_lock<std::mutex> _(mtx);
     {
         std::ifstream f(dir_path+"/"+log_file);
@@ -72,14 +76,17 @@ int &current_term,int &commit_index,int &last_applied,int &last_snapshot_index,i
         f.read((char*)&term,sizeof(int));
         while(!f.eof()){
             auto cmd = command{};
-            auto size = cmd.size();
-            char c[size];
+            int size;
+            f.read((char*)&size,sizeof(int));
+            char *c = new char[size];
             f.read(c,size);
             cmd.deserialize(c,size);
             log.emplace_back(term,cmd);
             f.read((char*)&term,sizeof(int));
+            delete[] c;
         }
     }
+    std::cout<<log_file<<std::endl;
     {
         std::ifstream f(dir_path+"/"+meta_file);
         if(f.fail()){
@@ -87,6 +94,7 @@ int &current_term,int &commit_index,int &last_applied,int &last_snapshot_index,i
         }
         f>>current_term>>commit_index>>last_applied>>vote_for;
     }
+    std::cout<<meta_file<<std::endl;
     {
         std::ifstream f(dir_path+"/"+snapshot_file);
         if(f.fail()){
@@ -104,6 +112,7 @@ int &current_term,int &commit_index,int &last_applied,int &last_snapshot_index,i
             f.read(&c,1);
         }
     }
+    std::cout<<"finish recover"<<std::endl;
 }
 
 template <typename command>
@@ -116,10 +125,12 @@ void raft_storage<command>::write_logs(std::list<std::pair<int,command>> &log){
         const auto term = entry.first;
         const auto cmd = entry.second;
         f.write((char*)&term,sizeof(int));
-        auto size = cmd.size();
-        char c[size];
+        int size = cmd.size();
+        char *c = new char[size];
         cmd.serialize(c,size);
-        f.write(c,size);   
+        f.write((char*)&size,sizeof(int));
+        f.write(c,size);  
+        delete[] c; 
     }
 }
 
