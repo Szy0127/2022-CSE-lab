@@ -48,12 +48,59 @@ private:
 
 mr_protocol::status Coordinator::askTask(int, mr_protocol::AskTaskResponse &reply) {
 	// Lab4 : Your code goes here.
-
+	unique_lock<mutex> _(mtx);
+	cout<<"coordinator receive askTask"<<endl;
+	Task assign_task{mr_tasktype::NONE};
+	// if(!isFinishedMap()){ // deadlock (not reentrant)
+	if(completedMapCount < long(mapTasks.size())){
+		for(auto&task:mapTasks){
+			if(!task.isAssigned){
+				task.isAssigned = true;
+				assign_task = task;
+				break;
+			}
+		}
+	}else{
+		if(completedReduceCount < long(reduceTasks.size())){
+			for(auto&task:reduceTasks){
+				if(!task.isAssigned){
+					task.isAssigned = true;
+					assign_task = task;
+					break;
+				}
+			}
+		}
+	}
+	// if(assign_task.taskType!=mr_tasktype::NONE){
+	reply.taskType = assign_task.taskType;
+	reply.index = assign_task.index;
+	if(assign_task.taskType == static_cast<int>(mr_tasktype::MAP)){
+		reply.map_filename = files[assign_task.index];
+	}
+	// cout<<"asktask"<<assign_task.taskType<<endl;
 	return mr_protocol::OK;
 }
 
 mr_protocol::status Coordinator::submitTask(int taskType, int index, bool &success) {
 	// Lab4 : Your code goes here.
+	unique_lock<mutex> _(mtx);
+	cout<<"coordinator receive"<<taskType<<" "<<index<<" finished"<<endl;
+	if(taskType == static_cast<int>(mr_tasktype::MAP)){
+		mapTasks[index].isCompleted = true;
+		completedMapCount++;
+		success = true;
+		return mr_protocol::OK;
+	}
+	if(taskType == static_cast<int>(mr_tasktype::REDUCE)){
+		reduceTasks[index].isCompleted = true;
+		completedReduceCount++;
+		success = true;
+		if(completedReduceCount >= long(reduceTasks.size())){
+			isFinished = true;
+		}
+		return mr_protocol::OK;
+	}
+
 
 	return mr_protocol::OK;
 }
@@ -115,6 +162,7 @@ Coordinator::Coordinator(const vector<string> &files, int nReduce)
 	for (int i = 0; i < nReduce; i++) {
 		this->reduceTasks.push_back(Task{mr_tasktype::REDUCE, false, false, i});
 	}
+	cout<<filesize<<endl;
 }
 
 int main(int argc, char *argv[])
@@ -149,6 +197,8 @@ int main(int argc, char *argv[])
 	// Lab4: Your code here.
 	// Hints: Register "askTask" and "submitTask" as RPC handlers here
 	// 
+	server.reg(mr_protocol::asktask, &c, &Coordinator::askTask);
+    server.reg(mr_protocol::submittask, &c, &Coordinator::submitTask);
 
 	while(!c.Done()) {
 		sleep(1);

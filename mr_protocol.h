@@ -27,6 +27,9 @@ public:
 
 	struct AskTaskResponse {
 		// Lab4: Your definition here.
+		int taskType;
+		int index;//number of files for map, number of reducer for reduce
+		string map_filename;
 	};
 
 	struct AskTaskRequest {
@@ -42,6 +45,27 @@ public:
 	};
 
 };
+
+marshall &operator<<(marshall &m, const mr_protocol::AskTaskResponse &args) {
+
+	m<<args.taskType;
+	m<<args.index;
+	// m<<static_cast<int>(args.map_filename.size());
+	m<<args.map_filename;
+    return m;
+}
+
+
+unmarshall &operator>>(unmarshall &u, mr_protocol::AskTaskResponse &args) {
+
+	u>>args.taskType;
+	u>>args.index;
+	// int size;
+	// u>>size;
+	u>>args.map_filename;
+
+    return u;
+}
 
 #endif
 
