@@ -58,7 +58,9 @@ getattr(chfs_client::inum inum, struct stat &st)
         st.st_ctime = info.ctime;
         st.st_size = info.size;
         printf("   getattr -> %llu\n", info.size);
-    } else {
+        return chfs_client::OK;
+    } 
+    if(chfs->isdir(inum)){
         chfs_client::dirinfo info;
         ret = chfs->getdir(inum, info);
         if(ret != chfs_client::OK)
@@ -69,8 +71,24 @@ getattr(chfs_client::inum inum, struct stat &st)
         st.st_mtime = info.mtime;
         st.st_ctime = info.ctime;
         printf("   getattr -> %lu %lu %lu\n", info.atime, info.mtime, info.ctime);
+        return chfs_client::OK;
     }
-    return chfs_client::OK;
+    if(chfs->isslink(inum)){
+        chfs_client::syminfo info;
+        ret = chfs->getsymlink(inum, info);
+        if(ret != chfs_client::OK)
+            return ret;
+        //https://stackoverflow.com/questions/6096193/how-to-make-symbolic-links-in-fuse
+        st.st_mode = S_IFLNK  | 0777;
+        st.st_nlink = 1;
+        st.st_atime = info.atime;
+        st.st_mtime = info.mtime;
+        st.st_ctime = info.ctime;
+        st.st_size = info.size;
+        printf("   getattr slink -> %lu %lu %lu %llu\n", info.atime, info.mtime, info.ctime,info.size);
+        return chfs_client::OK;
+    }
+    return chfs_client::NOENT;
 }
 
 //
@@ -121,20 +139,42 @@ void
 fuseserver_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr,
         int to_set, struct fuse_file_info *fi)
 {
+    std::cout<<"setattr:"<<ino<<std::endl;
     printf("fuseserver_setattr 0x%x\n", to_set);
     if (FUSE_SET_ATTR_SIZE & to_set) {
         printf("   fuseserver_setattr set size to %zu\n", attr->st_size);
-
-#if 0
+#if 1
+    //stat: sys/stat.h
+    //fuse.d: /usr/include/fuse/fuse_lowlevel.h
     struct stat st;
     // Change the above line to "#if 1", and your code goes here
     // Note: fill st using getattr before fuse_reply_attr
+    chfs_client::inum inum = ino;
+
+    auto ret = chfs->setattr(inum,attr->st_size);
+    if (ret != chfs_client::OK){
+        fuse_reply_err(req, ENOENT);
+        return;
+    }
+    ret = getattr(inum, st);
+    if(ret != chfs_client::OK){
+        fuse_reply_err(req, ENOENT);
+        return;
+    }
+    fuse_reply_attr(req,&st,0);//3th param:timeout
 #else
     fuse_reply_err(req, ENOSYS);
 #endif
 
     } else {
-        fuse_reply_err(req, ENOSYS);
+        struct stat st;
+        auto ret = getattr(ino, st);
+        if(ret != chfs_client::OK){
+            fuse_reply_err(req, ENOENT);
+            return;
+        }
+        fuse_reply_attr(req,&st,0);//3th param:timeout
+        // fuse_reply_err(req, ENOSYS);
     }
 }
 
@@ -154,8 +194,30 @@ void
 fuseserver_read(fuse_req_t req, fuse_ino_t ino, size_t size,
         off_t off, struct fuse_file_info *fi)
 {
-#if 0
+#if 1
     // Change the above "#if 0" to "#if 1", and your code goes here
+    std::string data;
+    auto ret = chfs->read(ino,size,off,data);
+    // The filesystem sometimes needs to handle a return value of -ENOENT
+    // from the reply function, which means, that the request was
+    // interrupted, and the reply discarded.
+    if(ret != chfs_client::OK){
+        fuse_reply_err(req, ENOENT);
+    }
+    /**
+     * Reply with data
+     *
+     * Possible requests:
+     *   read, readdir, getxattr, listxattr
+     *
+     * @param req request handle
+     * @param buf buffer containing data
+     * @param size the size of data in bytes
+     * @return zero for success, -errno for failure to send reply
+     */
+    //int fuse_reply_buf(fuse_req_t req, const char *buf, size_t size);
+
+    fuse_reply_buf(req,data.c_str(),data.length());
 #else
     fuse_reply_err(req, ENOSYS);
 #endif
@@ -183,8 +245,28 @@ fuseserver_write(fuse_req_t req, fuse_ino_t ino,
         const char *buf, size_t size, off_t off,
         struct fuse_file_info *fi)
 {
-#if 0
+#if 1
     // Change the above line to "#if 1", and your code goes here
+    size_t s;
+    auto ret = chfs->write(ino,size,off,buf,s);
+    if(ret!=chfs_client::OK){
+        fuse_reply_err(req, ENOENT);
+        return;
+    }
+    /**
+     * Reply with number of bytes written
+     *
+     * Possible requests:
+     *   write
+     *
+     * @param req request handle
+     * @param count the number of bytes written
+     * @return zero for success, -errno for failure to send reply
+     */
+    // int fuse_reply_write(fuse_req_t req, size_t count);
+
+
+    fuse_reply_write(req,s);
 #else
     fuse_reply_err(req, ENOSYS);
 #endif
@@ -234,6 +316,7 @@ void
 fuseserver_create(fuse_req_t req, fuse_ino_t parent, const char *name,
         mode_t mode, struct fuse_file_info *fi)
 {
+    // std::cout<<"create:"<<name<<std::endl;
     struct fuse_entry_param e;
     chfs_client::status ret;
     if( (ret = fuseserver_createhelper( parent, name, mode, &e, extent_protocol::T_FILE)) == chfs_client::OK ) {
@@ -278,12 +361,24 @@ fuseserver_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
     e.generation = 0;
     bool found = false;
 
-     chfs_client::inum ino;
-     chfs->lookup(parent, name, found, ino);
+    
+    // chfs_client::inum real_parent = parent;
+    // if(chfs->isslink(parent)){
+    //     std::string path;
+    //     chfs->readlink(parent,path);
+    //     chfs->lookup(1, "hosts", found, real_parent);
+    // }
+    chfs_client::inum ino;
+
+    chfs->lookup(parent, name, found, ino);
 
     if (found) {
         e.ino = ino;
-        getattr(ino, e.attr);
+        auto ret = getattr(ino, e.attr);
+        if(ret != chfs_client::OK){
+            fuse_reply_err(req, ENOENT);
+            return;
+        }
         fuse_reply_entry(req, &e);
     } else {
         fuse_reply_err(req, ENOENT);
@@ -382,10 +477,31 @@ fuseserver_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name,
     e.entry_timeout = 0.0;
     e.generation = 0;
     // Suppress compiler warning of unused e.
-    (void) e;
+    // (void) e;
 
-#if 0
+#if 1
     // Change the above line to "#if 1", and your code goes here
+    auto ret = fuseserver_createhelper( parent, name, mode, &e, extent_protocol::T_DIR);
+    if( ret  != chfs_client::OK ) {
+        fuse_reply_err(req, ENOENT);
+        return;
+    }
+    /**
+     * Reply with a directory entry
+     *
+     * Possible requests:
+     *   lookup, mknod, mkdir, symlink, link
+     *
+     * Side effects:
+     *   increments the lookup count on success
+     *
+     * @param req request handle
+     * @param e the entry parameters
+     * @return zero for success, -errno for failure to send reply
+     */
+    // int fuse_reply_entry(fuse_req_t req, const struct fuse_entry_param *e);
+
+    fuse_reply_entry(req,&e);
 #else
     fuse_reply_err(req, ENOSYS);
 #endif
@@ -413,6 +529,74 @@ fuseserver_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
         }
     }
 }
+/**
+ * Create a symbolic link
+ *
+ * Valid replies:
+ *   fuse_reply_entry
+ *   fuse_reply_err
+ *
+ * @param req request handle
+ * @param link the contents of the symbolic link
+ * @param parent inode number of the parent directory
+ * @param name to create
+ */
+void fuseserver_symlink(fuse_req_t req, const char *link, fuse_ino_t parent,const char *name){
+    struct fuse_entry_param e;
+    // In chfs, timeouts are always set to 0.0, and generations are always set to 0
+    e.attr_timeout = 0.0;
+    e.entry_timeout = 0.0;
+    e.generation = 0;
+
+    std::cout<<"fuse slink:"<<name<<" --> "<<link<<std::endl;
+    chfs_client::inum ino;
+    auto ret = chfs->symlink(parent,link,name,ino);
+    if(ret!= chfs_client::OK){
+        fuse_reply_err(req, ENOENT);
+        return;
+    }
+    e.ino = ino;
+    ret = getattr(ino, e.attr);
+    if(ret != chfs_client::OK){
+        fuse_reply_err(req, ENOENT);
+        return;
+    }
+    fuse_reply_entry(req,&e);
+}
+
+
+/**
+ * Read symbolic link
+ *
+ * Valid replies:
+ *   fuse_reply_readlink
+ *   fuse_reply_err
+ *
+ * @param req request handle
+ * @param ino the inode number
+ */
+void fuseserver_readlink(fuse_req_t req, fuse_ino_t ino){
+    /**
+     * Reply with the contents of a symbolic link
+     *
+     * Possible requests:
+     *   readlink
+     *
+     * @param req request handle
+     * @param link symbolic link contents
+     * @return zero for success, -errno for failure to send reply
+     */
+    // int fuse_reply_readlink(fuse_req_t req, const char *link);
+    std::string path;
+    auto ret = chfs->readlink(ino,path);
+    if(ret!= chfs_client::OK){
+        fuse_reply_err(req, ENOENT);
+        return;
+    }
+    std::cout<<"fuse readlink:"<<ino<<" "<<path<<std::endl;
+    fuse_reply_readlink(req,path.c_str());
+}
+
 
 void
 fuseserver_statfs(fuse_req_t req)
@@ -477,7 +661,8 @@ main(int argc, char *argv[])
      * routines here to implement symbolic link,
      * rmdir, etc.
      * */
-
+    fuseserver_oper.readlink    = fuseserver_readlink;
+    fuseserver_oper.symlink    = fuseserver_symlink;
     const char *fuse_argv[20];
     int fuse_argc = 0;
     fuse_argv[fuse_argc++] = argv[0];
