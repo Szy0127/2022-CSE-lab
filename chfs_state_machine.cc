@@ -87,7 +87,7 @@ unmarshall &operator>>(unmarshall &u, chfs_command_raft &cmd) {
 void chfs_state_machine::apply_log(raft_command &cmd) {
     chfs_command_raft &chfs_cmd = dynamic_cast<chfs_command_raft &>(cmd);
     // Lab3: Your code here
-    std::unique_lock<std::mutex> lock(mtx);
+    std::unique_lock<std::mutex> _(chfs_cmd.res->mtx);
     int t;
     switch (chfs_cmd.cmd_tp)
     {
