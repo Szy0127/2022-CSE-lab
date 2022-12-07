@@ -745,7 +745,7 @@ void raft<state_machine, command>::run_background_commit() {
         if (is_stopped()) return;
         // Lab3: Your code here:
         //backup test may recover from 50 to 1,cause much time to wait,may be considered as not making agreement;
-        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
         std::unique_lock<std::mutex> _(mtx);
         if(role==leader){
             // RAFT_LOG("commit");

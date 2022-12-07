@@ -45,7 +45,7 @@ getattr(chfs_client::inum inum, struct stat &st)
     bzero(&st, sizeof(st));
 
     st.st_ino = inum;
-    printf("getattr %016llx %d\n", inum, chfs->isfile(inum));
+    // printf("getattr %016llx %d\n", inum, chfs->isfile(inum));
     if(chfs->isfile(inum)){
         chfs_client::fileinfo info;
         ret = chfs->getfile(inum, info);
@@ -57,7 +57,7 @@ getattr(chfs_client::inum inum, struct stat &st)
         st.st_mtime = info.mtime;
         st.st_ctime = info.ctime;
         st.st_size = info.size;
-        printf("   getattr -> %llu\n", info.size);
+        // printf("   getattr -> %llu\n", info.size);
         return chfs_client::OK;
     } 
     if(chfs->isdir(inum)){
@@ -70,7 +70,7 @@ getattr(chfs_client::inum inum, struct stat &st)
         st.st_atime = info.atime;
         st.st_mtime = info.mtime;
         st.st_ctime = info.ctime;
-        printf("   getattr -> %lu %lu %lu\n", info.atime, info.mtime, info.ctime);
+        // printf("   getattr -> %lu %lu %lu\n", info.atime, info.mtime, info.ctime);
         return chfs_client::OK;
     }
     if(chfs->isslink(inum)){
@@ -85,7 +85,7 @@ getattr(chfs_client::inum inum, struct stat &st)
         st.st_mtime = info.mtime;
         st.st_ctime = info.ctime;
         st.st_size = info.size;
-        printf("   getattr slink -> %lu %lu %lu %llu\n", info.atime, info.mtime, info.ctime,info.size);
+        // printf("   getattr slink -> %lu %lu %lu %llu\n", info.atime, info.mtime, info.ctime,info.size);
         return chfs_client::OK;
     }
     return chfs_client::NOENT;
@@ -140,7 +140,7 @@ fuseserver_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr,
         int to_set, struct fuse_file_info *fi)
 {
     std::cout<<"setattr:"<<ino<<std::endl;
-    printf("fuseserver_setattr 0x%x\n", to_set);
+    // printf("fuseserver_setattr 0x%x\n", to_set);
     if (FUSE_SET_ATTR_SIZE & to_set) {
         printf("   fuseserver_setattr set size to %zu\n", attr->st_size);
 #if 1
@@ -321,7 +321,7 @@ fuseserver_create(fuse_req_t req, fuse_ino_t parent, const char *name,
     chfs_client::status ret;
     if( (ret = fuseserver_createhelper( parent, name, mode, &e, extent_protocol::T_FILE)) == chfs_client::OK ) {
         fuse_reply_create(req, &e, fi);
-        printf("OK: create returns.\n");
+        // printf("OK: create returns.\n");
     } else {
         if (ret == chfs_client::EXIST) {
             fuse_reply_err(req, EEXIST);
@@ -430,7 +430,7 @@ fuseserver_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
     chfs_client::inum inum = ino; // req->in.h.nodeid;
     struct dirbuf b;
 
-    printf("fuseserver_readdir\n");
+    // printf("fuseserver_readdir\n");
 
     if(!chfs->isdir(inum)){
         fuse_reply_err(req, ENOTDIR);
@@ -603,7 +603,7 @@ fuseserver_statfs(fuse_req_t req)
 {
     struct statvfs buf;
 
-    printf("statfs\n");
+    // printf("statfs\n");
 
     memset(&buf, 0, sizeof(buf));
 

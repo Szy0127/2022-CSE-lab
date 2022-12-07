@@ -9,13 +9,18 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
-
+/*
 #define EXT_RPC(xx) do { \
     if ((xx) != extent_protocol::OK) { \
         printf("EXT_RPC Error: %s:%d \n", __FILE__, __LINE__); \
         return IOERR; \
     } \
 } while (0)
+*/
+#define EXT_RPC(xx) do { \
+    xx;\
+} while (0)
+
 
 
 chfs_client::chfs_client(std::string extent_dst)
@@ -53,7 +58,7 @@ chfs_client::isfile(inum inum)
     }
 
     if (a.type == extent_protocol::T_FILE) {
-        printf("isfile: %lld is a file\n", inum);
+        // printf("isfile: %lld is a file\n", inum);
         return true;
     } 
     return false;
@@ -94,13 +99,13 @@ int chfs_client::_create(inum parent, const char *name, extent_protocol::types t
 
     EXT_RPC(ec->put(parent,entries2str(parent,entries)));
 
-    std::cout<<"create:"<<ino_out<<" "<<type<<std::endl;
+    // std::cout<<"create:"<<ino_out<<" "<<type<<std::endl;
     return r;
 }
 //parent/name --> link
 int chfs_client::symlink(inum parent,const char *link,const char *name,inum &ino_out){
     _create(parent,name,extent_protocol::T_SLINK,ino_out);
-    std::cout<<"symlink:"<<link<<" "<<ino_out<<std::endl;
+    // std::cout<<"symlink:"<<link<<" "<<ino_out<<std::endl;
     EXT_RPC(ec->put(ino_out,link));
     return OK;
 }
@@ -114,7 +119,7 @@ chfs_client::isslink(inum inum){
     }
 
     if (a.type == extent_protocol::T_SLINK) {
-        printf("isfile: %lld is a symbolic link\n", inum);
+        // printf("isfile: %lld is a symbolic link\n", inum);
         return true;
     } 
     return false;
@@ -131,7 +136,7 @@ chfs_client::isdir(inum inum)
     }
 
     if (a.type == extent_protocol::T_DIR) {
-        printf("isfile: %lld is a dir\n", inum);
+        // printf("isfile: %lld is a dir\n", inum);
         return true;
     } 
     return false;
@@ -142,7 +147,7 @@ chfs_client::getfile(inum inum, fileinfo &fin)
 {
     int r = OK;
 
-    printf("getfile %016llx\n", inum);
+    // printf("getfile %016llx\n", inum);
     extent_protocol::attr a;
     if (ec->getattr(inum, a) != extent_protocol::OK) {
         r = IOERR;
@@ -153,7 +158,7 @@ chfs_client::getfile(inum inum, fileinfo &fin)
     fin.mtime = a.mtime;
     fin.ctime = a.ctime;
     fin.size = a.size;
-    printf("getfile %016llx -> sz %llu\n", inum, fin.size);
+    // printf("getfile %016llx -> sz %llu\n", inum, fin.size);
 
 release:
     return r;
@@ -164,7 +169,7 @@ chfs_client::getdir(inum inum, dirinfo &din)
 {
     int r = OK;
 
-    printf("getdir %016llx\n", inum);
+    // printf("getdir %016llx\n", inum);
     extent_protocol::attr a;
     if (ec->getattr(inum, a) != extent_protocol::OK) {
         r = IOERR;
@@ -183,7 +188,7 @@ chfs_client::getsymlink(inum inum, syminfo &sin)
 {
     int r = OK;
 
-    printf("getslink %016llx\n", inum);
+    // printf("getslink %016llx\n", inum);
     extent_protocol::attr a;
     if (ec->getattr(inum, a) != extent_protocol::OK) {
         r = IOERR;
@@ -335,7 +340,7 @@ chfs_client::read(inum ino, size_t size, off_t off, std::string &data)
      * note: read using ec->get().
      */
 
-    std::cout<<"read:"<<ino<<" "<<size<<std::endl;
+    // std::cout<<"read:"<<ino<<" "<<size<<std::endl;
     assert(size >=0);
     assert(off >=0);
     EXT_RPC(ec->get(ino,data));
@@ -358,7 +363,7 @@ chfs_client::write(inum ino, size_t size, off_t off, const char *data,
      * when off > length of original file, fill the holes with '\0'.
      */
     
-    std::cout<<"write:"<<ino<<" "<<size<<std::endl;
+    // std::cout<<"write:"<<ino<<" "<<size<<std::endl;
     assert(size >=0);
     assert(off >=0);
     std::string origin;
@@ -406,7 +411,7 @@ int chfs_client::unlink(inum parent,const char *name)
      * and update the parent directory content.
      */
 
-    std::cout<<"unlink:"<<name<<std::endl;
+    // std::cout<<"unlink:"<<name<<std::endl;
     bool found;
     inum ino;
     lookup(parent,name,found,ino);
