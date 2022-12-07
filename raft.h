@@ -517,10 +517,17 @@ template <typename state_machine, typename command>
 void raft<state_machine, command>::handle_append_entries_reply(int node, const append_entries_args<command> &arg, const append_entries_reply &reply) {
     // Lab3: Your code here
     // RAFT_LOG("handle_append_entries_reply");
+
+    std::unique_lock<std::mutex> _(mtx);
+    if(reply.term > current_term){
+        RAFT_LOG("term too old,become follower,update term to %d",reply.term);
+        current_term = reply.term;
+        role = follower;
+        return;
+    }
     if(arg.entries.empty()){//ping
         return;
     }
-    std::unique_lock<std::mutex> _(mtx);
     if(role==follower || role == candidate){
         return;
     }
@@ -793,7 +800,7 @@ void raft<state_machine, command>::run_background_apply() {
         if (is_stopped()) return;
         // Lab3: Your code here:
         //rpc_count test limits 30rpc in election,but when get the result,many pings may already happened
-        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
         std::unique_lock<std::mutex> _(mtx);
         // RAFT_LOG("apply");
         if(last_applied < commit_index){
