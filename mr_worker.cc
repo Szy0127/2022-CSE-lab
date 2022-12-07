@@ -131,7 +131,7 @@ void Worker::doMap(int index, const vector<string> &filenames)
 {
 	// Lab4: Your code goes here.
 	unique_lock<mutex> _(mtx);
-	cout<<"do map"<<index<<endl;
+	// cout<<"do map"<<index<<endl;
 	auto filename = filenames[0];
 	string intermediate_path_prefix{basedir + "mr-" + to_string(index) + "-"};
 	string content;
@@ -142,15 +142,15 @@ void Worker::doMap(int index, const vector<string> &filenames)
 	}
 	getline(input_file,content,'\0');
 	vector<KeyVal> KVA = Map(filename,content);
-	cout<<"map function"<<index<<"finished"<<endl;
-	vector<ofstream> intermediates;
-	for(int i = 0; i < REDUCER_COUNT;i++){
-		cout<<i<<endl;
+	// cout<<"map function"<<index<<"finished"<<endl;
+	// vector<ofstream> intermediates;
+	// for(int i = 0; i < REDUCER_COUNT;i++){
+		// cout<<i<<endl;
 		// ofstream(intermediate_path_prefix+to_string(i+10),ios::app);
 		// cout<<i<<endl;
-		intermediates.emplace_back(intermediate_path_prefix+to_string(i),ios::app);
-	}
-	cout<<"open files"<<index<<"finished"<<endl;
+		// intermediates.emplace_back(intermediate_path_prefix+to_string(i),ios::app);
+	// }
+	// cout<<"open files"<<index<<"finished"<<endl;
 
 
 	//filesystem is based on raft,which is too slow
@@ -164,16 +164,18 @@ void Worker::doMap(int index, const vector<string> &filenames)
 		// intermediates[hash] << kv.key << " " << kv.val << endl;
 	}
 	for(int i = 0 ; i < REDUCER_COUNT;i++){
-		intermediates[i]<<file_data[i];
+		ofstream f(intermediate_path_prefix+to_string(i),ios::app);
+		// intermediates[i]<<file_data[i];
+		f<<file_data[i];
 	}
-	cout<<"worker map"<<index<<"finished"<<endl;
+	// cout<<"worker map"<<index<<"finished"<<endl;
 }
 
 void Worker::doReduce(int index)
 {
 	// Lab4: Your code goes here.
 	unique_lock<mutex> _(mtx);
-	cout<<"do reduce"<<index<<endl;
+	// cout<<"do reduce"<<index<<endl;
 	string intermediate_path_prefix{basedir+"mr-"};
 	vector<KeyVal> intermediate;
 	int file_index = 0;
@@ -192,13 +194,13 @@ void Worker::doReduce(int index)
 		}
 		file_index++;
 	}
-	cout<<"reducer"<<index<<" finish get intermediate"<<endl;
+	// cout<<"reducer"<<index<<" finish get intermediate"<<endl;
 	sort(intermediate.begin(), intermediate.end(),
     	[](KeyVal const & a, KeyVal const & b) {
 		return a.key < b.key;
 	});
 
-	ofstream f(basedir+"mr-out",ios::app);
+	// ofstream f(basedir+"mr-out",ios::app);
 	stringstream file_data;
     for (unsigned int i = 0; i < intermediate.size();) {
         unsigned int j = i + 1;
@@ -215,8 +217,9 @@ void Worker::doReduce(int index)
 		file_data<<intermediate[i].key.data()<<" "<<output.data()<<endl;
         i = j;
     }
+	ofstream f(basedir+"mr-out",ios::app);
 	f<<file_data.str();
-	cout<<"worker reduce"<<index<<"finished"<<endl;
+	// cout<<"worker reduce"<<index<<"finished"<<endl;
 
 }
 

@@ -49,7 +49,7 @@ private:
 mr_protocol::status Coordinator::askTask(int, mr_protocol::AskTaskResponse &reply) {
 	// Lab4 : Your code goes here.
 	unique_lock<mutex> _(mtx);
-	cout<<"coordinator receive askTask"<<endl;
+	// cout<<"coordinator receive askTask"<<endl;
 	Task assign_task{mr_tasktype::NONE};
 	// if(!isFinishedMap()){ // deadlock (not reentrant)
 	if(completedMapCount < long(mapTasks.size())){
@@ -84,7 +84,7 @@ mr_protocol::status Coordinator::askTask(int, mr_protocol::AskTaskResponse &repl
 mr_protocol::status Coordinator::submitTask(int taskType, int index, bool &success) {
 	// Lab4 : Your code goes here.
 	unique_lock<mutex> _(mtx);
-	cout<<"coordinator receive"<<taskType<<" "<<index<<" finished"<<endl;
+	// cout<<"coordinator receive"<<taskType<<" "<<index<<" finished"<<endl;
 	if(taskType == static_cast<int>(mr_tasktype::MAP)){
 		mapTasks[index].isCompleted = true;
 		completedMapCount++;
@@ -162,7 +162,7 @@ Coordinator::Coordinator(const vector<string> &files, int nReduce)
 	for (int i = 0; i < nReduce; i++) {
 		this->reduceTasks.push_back(Task{mr_tasktype::REDUCE, false, false, i});
 	}
-	cout<<filesize<<endl;
+	// cout<<filesize<<endl;
 }
 
 int main(int argc, char *argv[])
