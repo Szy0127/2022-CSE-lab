@@ -231,7 +231,7 @@ void Worker::doReduce(int index,int file_number)
 		file_data<<intermediate[i].key.data()<<" "<<output.data()<<endl;
         i = j;
     }
-	ofstream f(basedir+"mr-out",ios::app);
+	ofstream f(basedir+"mr-out-"+to_string(index),ios::app);
 	f<<file_data.str();
 	// cout<<"worker reduce"<<index<<"finished"<<endl;
 
