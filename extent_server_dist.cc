@@ -1,4 +1,5 @@
 #include "extent_server_dist.h"
+#include<chrono>
 #define TIMEOUT 10000
 chfs_raft *extent_server_dist::leader() const {
     int leader = this->raft_group->check_exact_one_leader();
@@ -16,6 +17,7 @@ int extent_server_dist::create(uint32_t type, extent_protocol::extentid_t &id) {
     cmd.type = type;
     int term;
     int index;
+    auto start = std::chrono::steady_clock::now();
     leader()->new_command(cmd,term,index);
     std::unique_lock<std::mutex> lock(cmd.res->mtx);
     if (!cmd.res->done) {
@@ -26,6 +28,8 @@ int extent_server_dist::create(uint32_t type, extent_protocol::extentid_t &id) {
         ASSERT(cmd.res->done,"extent_server_dist::create command wakeup but not done");
     }
     id = cmd.res->id;
+    auto end = std::chrono::steady_clock::now();
+    std::cout<<"extent server create time:"<<(double)std::chrono::duration_cast<std::chrono::microseconds>(end-start).count()/1000000<<std::endl;
     return extent_protocol::OK;
 }
 

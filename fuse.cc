@@ -17,6 +17,7 @@
 #include <arpa/inet.h>
 #include "lang/verify.h"
 #include "chfs_client.h"
+#include<chrono>
 
 int myid;
 chfs_client *chfs;
@@ -299,7 +300,7 @@ fuseserver_createhelper(fuse_ino_t parent, const char *name,
     e->attr_timeout = 0.0;
     e->entry_timeout = 0.0;
     e->generation = 0;
-
+    auto start = std::chrono::steady_clock::now();
     chfs_client::inum inum;
     if ( type == extent_protocol::T_FILE )
 		ret = chfs->create(parent, name, mode, inum);
@@ -309,6 +310,9 @@ fuseserver_createhelper(fuse_ino_t parent, const char *name,
         return ret;
     e->ino = inum;
     ret = getattr(inum, e->attr);
+    auto end = std::chrono::steady_clock::now();
+    std::cout<<"fuse create time:"<<(double)std::chrono::duration_cast<std::chrono::microseconds>(end-start).count()/1000000<<std::endl;
+
     return ret;
 }
 
