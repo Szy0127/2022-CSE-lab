@@ -173,10 +173,6 @@ raft<state_machine, command>::raft(rpcs *server, std::vector<rpcc *> clients, in
     {
     thread_pool = new ThrPool(32);
 
-    // Register the rpcs.
-    rpc_server->reg(raft_rpc_opcodes::op_request_vote, this, &raft::request_vote);
-    rpc_server->reg(raft_rpc_opcodes::op_append_entries, this, &raft::append_entries);
-    rpc_server->reg(raft_rpc_opcodes::op_install_snapshot, this, &raft::install_snapshot);
 
     // Your code here:
     // Do the initialization
@@ -208,6 +204,10 @@ raft<state_machine, command>::raft(rpcs *server, std::vector<rpcc *> clients, in
         }
     }
     srand(time(nullptr));
+    // Register the rpcs.
+    rpc_server->reg(raft_rpc_opcodes::op_request_vote, this, &raft::request_vote);
+    rpc_server->reg(raft_rpc_opcodes::op_append_entries, this, &raft::append_entries);
+    rpc_server->reg(raft_rpc_opcodes::op_install_snapshot, this, &raft::install_snapshot);
 }
 
 template <typename state_machine, typename command>
@@ -513,21 +513,16 @@ int raft<state_machine, command>::append_entries(append_entries_args<command> ar
     }else{
         log_it = log.begin();
     }
-    // auto end3 = std::chrono::steady_clock::now();
-    // std::cout<<"c"<<(double)std::chrono::duration_cast<std::chrono::microseconds>(end3-start).count()/1000000<<std::endl;
-    bool remove = log_it != log.end();
-    if(remove){
+
+    if(log_it != log.end()){
         log.erase(log_it,log.end());//remove [log_it,end)
-    }
-    log.splice(log.end(),arg.entries);
-    // auto end4 = std::chrono::steady_clock::now();
-    // std::cout<<"d"<<(double)std::chrono::duration_cast<std::chrono::microseconds>(end4-start).count()/1000000<<std::endl;
-    if(remove){
+        log.splice(log.end(),arg.entries);
         storage->write_logs(log);
     }else{
         for(const auto&log_:arg.entries){
             storage->append_log(log_.first,log_.second);
         }
+        log.splice(log.end(),arg.entries);//after now arg.entries is empty
     }
  
     RAFT_LOG("updated log size:%ld",log.size()-1);
@@ -556,10 +551,10 @@ void raft<state_machine, command>::handle_append_entries_reply(int node, const a
         role = follower;
         return;
     }
+    already_send[node] = false;
     if(arg.entries.empty()){//ping
         return;
     }
-    already_send[node] = false;
     if(role==follower || role == candidate){
         return;
     }
