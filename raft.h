@@ -16,7 +16,7 @@
 #include "raft_state_machine.h"
 #include <list>
 #include <set>
-
+#include<chrono>
 template <typename state_machine, typename command>
 class raft {
     static_assert(std::is_base_of<raft_state_machine, state_machine>(), "state_machine must inherit from raft_state_machine");
@@ -110,8 +110,9 @@ private:
     int last_applied;   //physical log[last_applied]
 
     /* ---- Volatile state on leader----  */
-    std::map<int,int> next_index;//clientid index of next log //logical index
-    std::map<int,int> match_index;
+    std::vector<int> next_index;//clientid index of next log //logical index
+    std::vector<int> match_index;
+    std::vector<bool> already_send;
 
 private:
     // RPC handlers
@@ -282,6 +283,9 @@ bool raft<state_machine, command>::new_command(command cmd, int &term, int &inde
     log.emplace_back(current_term,cmd);
     index = get_last_logical().first;
     RAFT_LOG("get new log[%ld]",index);
+    for(auto i = 0 ; i < num_nodes();i++){
+        already_send[i] = false;
+    }
     return true;
 }
 
@@ -389,11 +393,18 @@ void raft<state_machine, command>::handle_request_vote_reply(int target, const r
             role = leader;
             auto last_logical_index = get_last_logical().first;
             RAFT_LOG("become leader,next_index:%d",last_logical_index+1);
-            next_index.clear();
-            match_index.clear();
-            for(auto i = 0 ; i < num_nodes();i++){
-                next_index.emplace(i,last_logical_index+1);
-                match_index.emplace(i,0);
+            if(next_index.empty()){
+                for(auto i = 0 ; i < num_nodes();i++){
+                    next_index.push_back(last_logical_index+1);
+                    match_index.push_back(0);
+                    already_send.push_back(false);
+                }
+            }else{
+                for(auto i = 0 ; i < num_nodes();i++){
+                    next_index[i] = last_logical_index+1;
+                    match_index[i] = 0;
+                    already_send[i] = false;
+                }
             }
         }
     }else{
@@ -409,7 +420,7 @@ int raft<state_machine, command>::append_entries(append_entries_args<command> ar
     // RAFT_LOG("append_entries");
 
     std::unique_lock<std::mutex> _(mtx);
-
+    // auto start = std::chrono::steady_clock::now();
     reply.term = current_term;    
 
     // RAFT_LOG("receive log from node%d",arg.leader_id);
@@ -440,7 +451,9 @@ int raft<state_machine, command>::append_entries(append_entries_args<command> ar
         return OK;
     }
     heartbeat.store(true);
-
+    // auto end1 = std::chrono::steady_clock::now();
+    // std::cout<<"a"<<(double)std::chrono::duration_cast<std::chrono::microseconds>(end1-start).count()/1000000<<std::endl;
+ 
     leader_id = arg.leader_id;
     current_term = arg.term;
     if(arg.entries.empty()){
@@ -460,7 +473,9 @@ int raft<state_machine, command>::append_entries(append_entries_args<command> ar
         RAFT_LOG("last log index:%d,not %d",last_logical_index,arg.prev_log_index);
         return OK;
     }
-
+    // auto end2 = std::chrono::steady_clock::now();
+    // std::cout<<"b"<<(double)std::chrono::duration_cast<std::chrono::microseconds>(end2-start).count()/1000000<<std::endl;
+ 
     //log_it.term == prev_log_term
     // update from log_it+1
     auto log_it = log.begin();
@@ -498,17 +513,33 @@ int raft<state_machine, command>::append_entries(append_entries_args<command> ar
     }else{
         log_it = log.begin();
     }
-
-    log.erase(log_it,log.end());//remove [log_it,end)
+    // auto end3 = std::chrono::steady_clock::now();
+    // std::cout<<"c"<<(double)std::chrono::duration_cast<std::chrono::microseconds>(end3-start).count()/1000000<<std::endl;
+    bool remove = log_it != log.end();
+    if(remove){
+        log.erase(log_it,log.end());//remove [log_it,end)
+    }
     log.splice(log.end(),arg.entries);
-    storage->write_logs(log);
-    RAFT_LOG("updated log size:%ld",log.size());
+    // auto end4 = std::chrono::steady_clock::now();
+    // std::cout<<"d"<<(double)std::chrono::duration_cast<std::chrono::microseconds>(end4-start).count()/1000000<<std::endl;
+    if(remove){
+        storage->write_logs(log);
+    }else{
+        for(const auto&log_:arg.entries){
+            storage->append_log(log_.first,log_.second);
+        }
+    }
+ 
+    RAFT_LOG("updated log size:%ld",log.size()-1);
     if(arg.leader_commit > commit_index){
         auto size = get_last_logical().first;
         RAFT_LOG("update commit index from %d to %d,from node%d",commit_index,arg.leader_commit<=size ? arg.leader_commit : size,arg.leader_id);
         commit_index = arg.leader_commit<=size ? arg.leader_commit : size;
         storage->update_meta(current_term,commit_index,last_applied);
     }
+    // auto end = std::chrono::steady_clock::now();
+    // std::cout<<"followe append time:"<<(double)std::chrono::duration_cast<std::chrono::microseconds>(end-start).count()/1000000<<std::endl;
+ 
 
     return OK;
 }
@@ -528,6 +559,7 @@ void raft<state_machine, command>::handle_append_entries_reply(int node, const a
     if(arg.entries.empty()){//ping
         return;
     }
+    already_send[node] = false;
     if(role==follower || role == candidate){
         return;
     }
@@ -745,11 +777,14 @@ void raft<state_machine, command>::run_background_commit() {
         if (is_stopped()) return;
         // Lab3: Your code here:
         //backup test may recover from 50 to 1,cause much time to wait,may be considered as not making agreement;
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
         std::unique_lock<std::mutex> _(mtx);
         if(role==leader){
             // RAFT_LOG("commit");
             for(auto i = 0 ;i < num_nodes();i++){
+                if(already_send[i]){
+                    continue;
+                }
                 if(last_snapshot_index > 0 && next_index[i]-1 < last_snapshot_index){
                     install_snapshot_args s_arg;
                     s_arg.term = current_term;
@@ -780,6 +815,7 @@ void raft<state_machine, command>::run_background_commit() {
                 for(;log_it!=log.end();log_it++){
                     arg.entries.push_back(*log_it);
                 }
+                already_send[i] = true;
                 RAFT_LOG("update to node%d log[%d-%ld],previndex:%d,prevterm:%d",i,next_index[i],arg.entries.size()+next_index[i]-1,arg.prev_log_index,arg.prev_log_term);
                 thread_pool->addObjJob(this, &raft::send_append_entries, i, arg);
             }
@@ -800,7 +836,7 @@ void raft<state_machine, command>::run_background_apply() {
         if (is_stopped()) return;
         // Lab3: Your code here:
         //rpc_count test limits 30rpc in election,but when get the result,many pings may already happened
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
         std::unique_lock<std::mutex> _(mtx);
         // RAFT_LOG("apply");
         if(last_applied < commit_index){
@@ -813,6 +849,9 @@ void raft<state_machine, command>::run_background_apply() {
             }
             auto n = commit_index - last_applied;
             RAFT_LOG("apply log[%d~%d],phisical[%d~%d]",last_applied+1,last_applied+n,last_applied-last_snapshot_index+1,last_applied-last_snapshot_index+n);
+            // if(role==leader){
+            //     std::cout<<"raft apply"<<last_applied+1<<" "<<last_applied+n<<std::endl;
+            // }
             for(auto i = 0;i<n;i++,log_it++){
                 state->apply_log(log_it->second);
             }

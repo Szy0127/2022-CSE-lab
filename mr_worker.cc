@@ -100,7 +100,7 @@ public:
 
 private:
 	void doMap(int index, const vector<string> &filenames);
-	void doReduce(int index);
+	void doReduce(int index,int file_number);
 	void doSubmit(mr_tasktype taskType, int index);
 
 	mutex mtx;
@@ -171,20 +171,35 @@ void Worker::doMap(int index, const vector<string> &filenames)
 	// cout<<"worker map"<<index<<"finished"<<endl;
 }
 
-void Worker::doReduce(int index)
+void Worker::doReduce(int index,int file_number)
 {
 	// Lab4: Your code goes here.
 	unique_lock<mutex> _(mtx);
 	// cout<<"do reduce"<<index<<endl;
 	string intermediate_path_prefix{basedir+"mr-"};
 	vector<KeyVal> intermediate;
-	int file_index = 0;
-	while(true){
-		string filename = intermediate_path_prefix + to_string(file_index) + "-" + to_string(index);
+	// int file_index = 0;
+	// while(true){
+	// 	string filename = intermediate_path_prefix + to_string(file_index) + "-" + to_string(index);
+	// 	ifstream f(filename);
+	// 	if(f.fail()){
+	// 		break;
+	// 	}
+	// 	string content;
+	// 	getline(f,content,'\0');
+	// 	stringstream ss(content);
+	// 	KeyVal kv;
+	// 	while(ss>>kv.key>>kv.val){
+	// 		intermediate.push_back(kv);
+	// 	}
+	// 	file_index++;
+	// }
+	for(auto i = 0 ;i < file_number;i++){
+		string filename = intermediate_path_prefix + to_string(i) + "-" + to_string(index);
 		ifstream f(filename);
-		if(f.fail()){
-			break;
-		}
+		// if(f.fail()){
+		// 	break;
+		// }
 		string content;
 		getline(f,content,'\0');
 		stringstream ss(content);
@@ -192,7 +207,6 @@ void Worker::doReduce(int index)
 		while(ss>>kv.key>>kv.val){
 			intermediate.push_back(kv);
 		}
-		file_index++;
 	}
 	// cout<<"reducer"<<index<<" finish get intermediate"<<endl;
 	sort(intermediate.begin(), intermediate.end(),
@@ -256,7 +270,7 @@ void Worker::doWork()
                 break;
 			}
             case mr_tasktype::REDUCE:
-                doReduce(res.index);
+                doReduce(res.index,res.file_number);
                 doSubmit(REDUCE, res.index);
                 break;
             case mr_tasktype::NONE:

@@ -76,6 +76,11 @@ mr_protocol::status Coordinator::askTask(int, mr_protocol::AskTaskResponse &repl
 	reply.index = assign_task.index;
 	if(assign_task.taskType == static_cast<int>(mr_tasktype::MAP)){
 		reply.map_filename = files[assign_task.index];
+		return mr_protocol::OK;
+	}
+	if(assign_task.taskType == static_cast<int>(mr_tasktype::REDUCE)){
+		reply.file_number = files.size();
+		return mr_protocol::OK;
 	}
 	// cout<<"asktask"<<assign_task.taskType<<endl;
 	return mr_protocol::OK;

@@ -29,6 +29,7 @@ public:
 		// Lab4: Your definition here.
 		int taskType;
 		int index;//number of files for map, number of reducer for reduce
+		int file_number;//for reducer
 		string map_filename;
 	};
 
@@ -51,6 +52,7 @@ marshall &operator<<(marshall &m, const mr_protocol::AskTaskResponse &args) {
 	m<<args.taskType;
 	m<<args.index;
 	// m<<static_cast<int>(args.map_filename.size());
+	m<<args.file_number;
 	m<<args.map_filename;
     return m;
 }
@@ -62,6 +64,7 @@ unmarshall &operator>>(unmarshall &u, mr_protocol::AskTaskResponse &args) {
 	u>>args.index;
 	// int size;
 	// u>>size;
+	u>>args.file_number;
 	u>>args.map_filename;
 
     return u;
